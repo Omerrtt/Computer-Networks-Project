@@ -677,17 +677,25 @@ class QuizServer:
         try:
             data = json.dumps(message).encode('utf-8')
             # Send message with newline separator
-            client_socket.sendall(data + b'\n')
-            # Debug log for question messages
-            if message.get("type") == "question":
-                client_name = self.clients.get(client_socket, {}).get('name', 'Unknown')
+            full_message = data + b'\n'
+            client_socket.sendall(full_message)
+            
+            # Debug log for all messages
+            msg_type = message.get("type", "unknown")
+            client_name = self.clients.get(client_socket, {}).get('name', 'Unknown')
+            
+            if msg_type == "connection_accepted":
+                self.log(f"Sent {msg_type} to {client_name}")
+            elif msg_type == "question":
                 self.log(f"Sent question to {client_name}: {message.get('question', '')[:50]}...")
+            elif msg_type in ["scoreboard", "answer_result", "game_end", "player_connected"]:
+                self.log(f"Sent {msg_type} to {client_name}")
         except Exception as e:
             self.log(f"Error sending message: {e}")
             # Try to get client name for better error reporting
             try:
                 client_name = self.clients.get(client_socket, {}).get('name', 'Unknown')
-                self.log(f"Failed to send message to {client_name}")
+                self.log(f"Failed to send message to {client_name}: {e}")
             except:
                 pass
             

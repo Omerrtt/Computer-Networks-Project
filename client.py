@@ -167,16 +167,17 @@ class QuizClient:
             
             self.log(f"Connecting to {server_ip}:{port} as '{client_name}'...")
             
-            # Start receiving thread
-            self.receive_thread = threading.Thread(target=self.receive_messages, daemon=True)
-            self.receive_thread.start()
-            
             self.is_connected = True
             self.connect_button.config(text="Disconnect")
             self.ip_var.set(server_ip)
             self.port_var.set(str(port))
             self.name_var.set(client_name)
             
+            # Start receiving thread AFTER setting is_connected
+            self.receive_thread = threading.Thread(target=self.receive_messages, daemon=True)
+            self.receive_thread.start()
+            
+            self.log("Receive thread started, waiting for server response...")
             # Note: Connection will be confirmed when we receive connection_accepted message
                     
         except socket.timeout:
@@ -282,17 +283,22 @@ class QuizClient:
                 
     def receive_messages(self):
         buffer = b""  # Buffer for incomplete messages (bytes)
+        self.root.after(0, lambda: self.log("Receive thread started, listening for messages..."))
+        
         while self.is_connected:
             try:
                 if not self.client_socket:
+                    self.root.after(0, lambda: self.log("Client socket is None, stopping receive thread"))
                     break
                     
                 data = self.client_socket.recv(4096)
                 if not data:
+                    self.root.after(0, lambda: self.log("Received empty data, connection closed"))
                     break
                 
                 # Add to buffer
                 buffer += data
+                self.root.after(0, lambda d=len(data): self.log(f"Received {d} bytes, buffer size: {len(buffer)}"))
                 
                 # Process all complete messages (separated by newline)
                 while b'\n' in buffer:
@@ -300,30 +306,38 @@ class QuizClient:
                     line, buffer = buffer.split(b'\n', 1)
                     if line:
                         try:
-                            message = json.loads(line.decode('utf-8'))
+                            line_str = line.decode('utf-8')
+                            self.root.after(0, lambda ls=line_str[:100]: self.log(f"Parsing message: {ls}..."))
+                            message = json.loads(line_str)
+                            msg_type = message.get("type", "unknown")
+                            self.root.after(0, lambda mt=msg_type: self.log(f"Received message type: {mt}"))
                             self.handle_message(message)
                         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                            self.log(f"Error parsing message: {e}")
-                            self.log(f"Raw data: {line[:100]}...")  # Log first 100 chars for debugging
+                            self.root.after(0, lambda e=e, l=line[:100]: self.log(f"Error parsing message: {e}, Raw: {l}..."))
                     
             except ConnectionResetError:
-                self.log("Connection reset by server")
+                self.root.after(0, lambda: self.log("Connection reset by server"))
                 break
-            except OSError:
+            except OSError as e:
+                self.root.after(0, lambda e=e: self.log(f"OSError in receive: {e}"))
                 break
             except Exception as e:
-                self.log(f"Error receiving message: {e}")
+                self.root.after(0, lambda e=e: self.log(f"Error receiving message: {e}"))
+                import traceback
+                self.root.after(0, lambda: self.log(f"Traceback: {traceback.format_exc()}"))
                 break
                 
         # Connection lost
         if self.is_connected:
+            self.root.after(0, lambda: self.log("Receive thread ended, connection lost"))
             self.root.after(0, self.handle_disconnection)
             
     def handle_message(self, message):
         msg_type = message.get("type")
         
         if msg_type == "connection_accepted":
-            self.root.after(0, lambda: self.log(message.get("message", "Connected successfully")))
+            msg = message.get("message", "Connected successfully")
+            self.root.after(0, lambda: self.log(f"✓ {msg}"))
             # Connection confirmed, can disable inputs if needed (optional)
             
         elif msg_type == "connection_error":
