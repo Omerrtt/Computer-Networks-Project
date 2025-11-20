@@ -283,22 +283,17 @@ class QuizClient:
                 
     def receive_messages(self):
         buffer = b""  # Buffer for incomplete messages (bytes)
-        self.root.after(0, lambda: self.log("Receive thread started, listening for messages..."))
-        
         while self.is_connected:
             try:
                 if not self.client_socket:
-                    self.root.after(0, lambda: self.log("Client socket is None, stopping receive thread"))
                     break
                     
                 data = self.client_socket.recv(4096)
                 if not data:
-                    self.root.after(0, lambda: self.log("Received empty data, connection closed"))
                     break
                 
                 # Add to buffer
                 buffer += data
-                self.root.after(0, lambda d=len(data): self.log(f"Received {d} bytes, buffer size: {len(buffer)}"))
                 
                 # Process all complete messages (separated by newline)
                 while b'\n' in buffer:
@@ -306,30 +301,22 @@ class QuizClient:
                     line, buffer = buffer.split(b'\n', 1)
                     if line:
                         try:
-                            line_str = line.decode('utf-8')
-                            self.root.after(0, lambda ls=line_str[:100]: self.log(f"Parsing message: {ls}..."))
-                            message = json.loads(line_str)
-                            msg_type = message.get("type", "unknown")
-                            self.root.after(0, lambda mt=msg_type: self.log(f"Received message type: {mt}"))
+                            message = json.loads(line.decode('utf-8'))
                             self.handle_message(message)
                         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                            self.root.after(0, lambda e=e, l=line[:100]: self.log(f"Error parsing message: {e}, Raw: {l}..."))
+                            self.log(f"Error parsing message: {e}")
                     
             except ConnectionResetError:
-                self.root.after(0, lambda: self.log("Connection reset by server"))
+                self.log("Connection reset by server")
                 break
-            except OSError as e:
-                self.root.after(0, lambda e=e: self.log(f"OSError in receive: {e}"))
+            except OSError:
                 break
             except Exception as e:
-                self.root.after(0, lambda e=e: self.log(f"Error receiving message: {e}"))
-                import traceback
-                self.root.after(0, lambda: self.log(f"Traceback: {traceback.format_exc()}"))
+                self.log(f"Error receiving message: {e}")
                 break
                 
         # Connection lost
         if self.is_connected:
-            self.root.after(0, lambda: self.log("Receive thread ended, connection lost"))
             self.root.after(0, self.handle_disconnection)
             
     def handle_message(self, message):
@@ -359,16 +346,18 @@ class QuizClient:
                 "B": message.get("B", ""),
                 "C": message.get("C", "")
             }
-            self.log(f"Received question {question_data['question_number']}/{question_data['total_questions']}: {question_data['question']}")
-            self.log(f"Choices - A: {question_data['A']}, B: {question_data['B']}, C: {question_data['C']}")
             # Use a copy to avoid closure issues
             qd_copy = question_data.copy()
             self.root.after(0, lambda: self.display_question(qd_copy))
             
         elif msg_type == "answer_result":
             result_msg = message.get("message", "")
+            your_answer = message.get("your_answer", "")
+            correct_answer = message.get("correct_answer", "")
+            your_score = message.get("your_score", 0)
+            
             self.root.after(0, lambda: self.log(result_msg))
-            self.root.after(0, lambda: self.disable_answer_ui())
+            self.root.after(0, lambda: self.show_answer_result(your_answer, correct_answer, result_msg, your_score))
             
         elif msg_type == "player_connected":
             player_name = message.get("player_name", "Unknown")
@@ -394,7 +383,6 @@ class QuizClient:
             
     def display_question(self, question_data):
         try:
-            self.log(f"Displaying question {question_data.get('question_number', 0)} in UI...")
             self.is_in_game = True
             self.current_question = question_data
             
@@ -405,9 +393,10 @@ class QuizClient:
             choice_b_text = f"B: {question_data['B']}"
             choice_c_text = f"C: {question_data['C']}"
             
-            self.choice_a_label.config(text=choice_a_text)
-            self.choice_b_label.config(text=choice_b_text)
-            self.choice_c_label.config(text=choice_c_text)
+            # Reset label colors to black
+            self.choice_a_label.config(text=choice_a_text, fg="black")
+            self.choice_b_label.config(text=choice_b_text, fg="black")
+            self.choice_c_label.config(text=choice_c_text, fg="black")
             
             # Enable answer UI
             self.radio_a.config(state=tk.NORMAL)
@@ -416,11 +405,9 @@ class QuizClient:
             self.submit_button.config(state=tk.NORMAL)
             self.answer_var.set("")
             
-            self.log(f"Question UI updated successfully - Question {question_data['question_number']}: {question_data['question'][:50]}...")
+            self.log(f"Question {question_data['question_number']}: {question_data['question']}")
         except Exception as e:
             self.log(f"Error displaying question: {e}")
-            import traceback
-            self.log(f"Traceback: {traceback.format_exc()}")
         
     def submit_answer(self):
         if not self.is_in_game or not self.current_question:
@@ -431,6 +418,9 @@ class QuizClient:
             messagebox.showwarning("Warning", "Please select an answer")
             return
             
+        # Disable UI immediately to prevent double submission
+        self.disable_answer_ui()
+        
         # Send answer with timestamp
         self.send_message({
             "type": "answer",
@@ -438,14 +428,43 @@ class QuizClient:
             "timestamp": time.time()
         })
         
-        self.log(f"Answer submitted: {answer}")
-        self.disable_answer_ui()
+        self.log(f"Answer submitted: {answer}. Waiting for other players...")
         
     def disable_answer_ui(self):
         self.radio_a.config(state=tk.DISABLED)
         self.radio_b.config(state=tk.DISABLED)
         self.radio_c.config(state=tk.DISABLED)
         self.submit_button.config(state=tk.DISABLED)
+    
+    def show_answer_result(self, your_answer, correct_answer, result_msg, your_score):
+        """Show the answer result and highlight correct/incorrect answers"""
+        # Disable answer UI first
+        self.disable_answer_ui()
+        
+        # Reset all colors first
+        self.choice_a_label.config(fg="black")
+        self.choice_b_label.config(fg="black")
+        self.choice_c_label.config(fg="black")
+        
+        # Highlight the selected answer
+        if your_answer == "A":
+            self.choice_a_label.config(fg="red" if your_answer != correct_answer else "green")
+        elif your_answer == "B":
+            self.choice_b_label.config(fg="red" if your_answer != correct_answer else "green")
+        elif your_answer == "C":
+            self.choice_c_label.config(fg="red" if your_answer != correct_answer else "green")
+        
+        # Highlight correct answer in green (if different from selected)
+        if correct_answer == "A" and your_answer != "A":
+            self.choice_a_label.config(fg="green")
+        elif correct_answer == "B" and your_answer != "B":
+            self.choice_b_label.config(fg="green")
+        elif correct_answer == "C" and your_answer != "C":
+            self.choice_c_label.config(fg="green")
+        
+        # Show result message
+        self.log(f"Your answer: {your_answer}, Correct answer: {correct_answer}")
+        self.log(f"Your current score: {your_score} points")
         
     def reset_question_ui(self):
         self.question_label.config(text="Waiting for question...")
