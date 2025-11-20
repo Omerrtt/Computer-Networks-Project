@@ -130,7 +130,7 @@ class QuizServer:
         
         # Number of questions
         ttk.Label(game_frame, text="Number of Questions:").grid(row=0, column=0, sticky=tk.W, padx=5)
-        self.num_questions_var = tk.StringVar()
+        self.num_questions_var = tk.StringVar(value="5")  # Default to 5 questions
         num_questions_entry = ttk.Entry(game_frame, textvariable=self.num_questions_var, width=15)
         num_questions_entry.grid(row=0, column=1, sticky=tk.W, padx=5)
         
@@ -324,10 +324,23 @@ class QuizServer:
                 
                 self.log(f"Client '{client_name}' connected from {address}")
                 self.update_clients_list()
-                self.update_start_game_button()
+                
+                # Notify other clients about the new connection
+                self.broadcast_message({
+                    "type": "player_connected",
+                    "player_name": client_name,
+                    "message": f"{client_name} has joined the game",
+                    "total_players": len(self.clients)
+                }, exclude_socket=client_socket)  # Don't send to the newly connected client
                 
                 # Send current scoreboard
                 self.send_scoreboard()
+                
+                # Auto-start game if 2+ players and questions configured
+                self.update_start_game_button()
+                if len(self.clients) >= 2 and self.num_questions_var.get() and not self.is_game_active:
+                    # Auto-start after a short delay to allow UI updates
+                    self.root.after(500, self.auto_start_game)
                 
                 # Keep connection alive and handle messages
                 while self.is_listening:
@@ -429,6 +442,17 @@ class QuizServer:
             self.is_listening
         )
         self.start_game_button.config(state=tk.NORMAL if can_start else tk.DISABLED)
+        
+    def auto_start_game(self):
+        """Automatically start the game when conditions are met"""
+        if (
+            len(self.clients) >= 2 and
+            self.num_questions_var.get() and
+            not self.is_game_active and
+            self.is_listening
+        ):
+            self.log("Auto-starting game...")
+            self.start_game()
         
     def start_game(self):
         try:
@@ -649,10 +673,13 @@ class QuizServer:
         except Exception as e:
             self.log(f"Error sending message: {e}")
             
-    def broadcast_message(self, message):
+    def broadcast_message(self, message, exclude_socket=None):
+        """Broadcast message to all clients, optionally excluding one"""
         with self.lock:
             clients_to_remove = []
             for client_socket in self.clients.keys():
+                if client_socket == exclude_socket:
+                    continue  # Skip excluded client
                 try:
                     self.send_message(client_socket, message)
                 except:

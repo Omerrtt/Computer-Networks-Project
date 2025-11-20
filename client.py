@@ -153,7 +153,8 @@ class QuizClient:
                 
             # Create socket and connect
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.client_socket.settimeout(5)
+            self.client_socket.settimeout(10)  # Increased timeout for network connections
+            self.log(f"Attempting to connect to {server_ip}:{port}...")
             self.client_socket.connect((server_ip, port))
             self.client_socket.settimeout(None)
             
@@ -179,8 +180,17 @@ class QuizClient:
             # Note: Connection will be confirmed when we receive connection_accepted message
                     
         except socket.timeout:
-            messagebox.showerror("Error", "Connection timeout. Server may be unreachable.")
-            self.log("Connection timeout")
+            error_msg = (
+                f"Connection timeout after 10 seconds.\n\n"
+                f"Troubleshooting:\n"
+                f"1. Verify server IP: {server_ip}\n"
+                f"2. Verify server is running on port {port}\n"
+                f"3. Check if both computers are on the same network\n"
+                f"4. Test connection: ping {server_ip}\n"
+                f"5. Check Windows Firewall settings on server"
+            )
+            messagebox.showerror("Connection Timeout", error_msg)
+            self.log(f"Connection timeout to {server_ip}:{port}")
             if self.client_socket:
                 try:
                     self.client_socket.close()
@@ -188,8 +198,44 @@ class QuizClient:
                     pass
                 self.client_socket = None
         except ConnectionRefusedError:
-            messagebox.showerror("Error", "Connection refused. Server may not be running.")
-            self.log("Connection refused")
+            error_msg = (
+                f"Connection refused by {server_ip}:{port}\n\n"
+                f"Possible causes:\n"
+                f"1. Server is not running\n"
+                f"2. Wrong port number\n"
+                f"3. Firewall is blocking the connection\n"
+                f"4. Server is not listening on this IP address"
+            )
+            messagebox.showerror("Connection Refused", error_msg)
+            self.log(f"Connection refused from {server_ip}:{port}")
+            if self.client_socket:
+                try:
+                    self.client_socket.close()
+                except:
+                    pass
+                self.client_socket = None
+        except OSError as e:
+            error_code = getattr(e, 'winerror', getattr(e, 'errno', None))
+            if error_code == 10051:  # Network is unreachable
+                error_msg = (
+                    f"Network unreachable: {server_ip}\n\n"
+                    f"Possible causes:\n"
+                    f"1. Wrong IP address\n"
+                    f"2. Different network (not on same Wi-Fi)\n"
+                    f"3. Network interface is down"
+                )
+            elif error_code == 10060:  # Connection timed out (Windows)
+                error_msg = (
+                    f"Connection timed out to {server_ip}:{port}\n\n"
+                    f"Check:\n"
+                    f"1. Server is running\n"
+                    f"2. Firewall allows port {port}\n"
+                    f"3. Both computers on same network"
+                )
+            else:
+                error_msg = f"Connection error: {e}\n\nError code: {error_code}"
+            messagebox.showerror("Connection Error", error_msg)
+            self.log(f"Connection error to {server_ip}:{port} - {e} (code: {error_code})")
             if self.client_socket:
                 try:
                     self.client_socket.close()
@@ -197,7 +243,7 @@ class QuizClient:
                     pass
                 self.client_socket = None
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to connect: {e}")
+            messagebox.showerror("Error", f"Failed to connect: {e}\n\nServer IP: {server_ip}\nPort: {port}")
             self.log(f"Connection error: {e}")
             if self.client_socket:
                 try:
@@ -295,6 +341,12 @@ class QuizClient:
             result_msg = message.get("message", "")
             self.root.after(0, lambda: self.log(result_msg))
             self.root.after(0, lambda: self.disable_answer_ui())
+            
+        elif msg_type == "player_connected":
+            player_name = message.get("player_name", "Unknown")
+            connect_msg = message.get("message", f"{player_name} has joined")
+            total_players = message.get("total_players", 0)
+            self.root.after(0, lambda: self.log(f"{connect_msg} (Total players: {total_players})"))
             
         elif msg_type == "player_disconnected":
             player_name = message.get("player_name", "Unknown")
