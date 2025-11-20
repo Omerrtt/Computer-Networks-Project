@@ -194,9 +194,21 @@ class QuizServer:
             self.server_socket.listen(5)
             self.is_listening = True
             
+            # Get local IP address
+            try:
+                # Connect to a remote address to get local IP
+                temp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                temp_socket.connect(("8.8.8.8", 80))
+                local_ip = temp_socket.getsockname()[0]
+                temp_socket.close()
+            except:
+                local_ip = "Unable to determine"
+            
             self.start_button.config(text="Stop Server")
             self.port_var.set(str(port))
             self.log(f"Server started and listening on port {port}")
+            self.log(f"Server IP Address: {local_ip}")
+            self.log(f"Clients can connect using IP: {local_ip} and Port: {port}")
             
             # Start accepting connections
             accept_thread = threading.Thread(target=self.accept_connections, daemon=True)
