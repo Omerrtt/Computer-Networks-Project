@@ -30,6 +30,8 @@ class QuizClient:
         # Main frame
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         
@@ -90,12 +92,12 @@ class QuizClient:
         self.choice_c_label = tk.Label(choices_frame, text="", wraplength=400, justify=tk.LEFT)
         self.choice_c_label.grid(row=2, column=1, sticky=tk.W, padx=5)
         
-        # Submit button - placed directly in question_frame, not in choices_frame
+        # Submit button - placed directly in question_frame, below choices_frame
         self.submit_button = tk.Button(question_frame, text="Submit Answer", command=self.submit_answer, 
-                                       state="disabled", font=("Arial", 11, "bold"), bg="#4CAF50", fg="white",
+                                       state="disabled", font=("Arial", 14, "bold"), bg="#4CAF50", fg="white",
                                        activebackground="#45a049", disabledforeground="gray",
-                                       relief=tk.RAISED, bd=3, cursor="hand2", height=2)
-        self.submit_button.grid(row=2, column=0, columnspan=3, pady=20, padx=10, sticky=(tk.W, tk.E))
+                                       relief=tk.RAISED, bd=4, cursor="hand2", height=3, width=30)
+        self.submit_button.grid(row=2, column=0, columnspan=3, pady=25, padx=20, sticky=(tk.W, tk.E))
         
         # Scoreboard frame
         scoreboard_frame = ttk.LabelFrame(main_frame, text="Scoreboard", padding="10")
