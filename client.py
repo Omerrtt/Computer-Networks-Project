@@ -74,24 +74,24 @@ class QuizClient:
         choices_frame.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=10)
         
         self.answer_var = tk.StringVar()
-        self.radio_a = ttk.Radiobutton(choices_frame, text="A", variable=self.answer_var, value="A", state=tk.DISABLED)
-        self.radio_a.grid(row=0, column=0, padx=10)
+        self.radio_a = ttk.Radiobutton(choices_frame, text="", variable=self.answer_var, value="A", state=tk.DISABLED)
+        self.radio_a.grid(row=0, column=0, padx=5)
         self.choice_a_label = tk.Label(choices_frame, text="", wraplength=400, justify=tk.LEFT)
         self.choice_a_label.grid(row=0, column=1, sticky=tk.W, padx=5)
         
-        self.radio_b = ttk.Radiobutton(choices_frame, text="B", variable=self.answer_var, value="B", state=tk.DISABLED)
-        self.radio_b.grid(row=1, column=0, padx=10, pady=5)
+        self.radio_b = ttk.Radiobutton(choices_frame, text="", variable=self.answer_var, value="B", state=tk.DISABLED)
+        self.radio_b.grid(row=1, column=0, padx=5, pady=5)
         self.choice_b_label = tk.Label(choices_frame, text="", wraplength=400, justify=tk.LEFT)
         self.choice_b_label.grid(row=1, column=1, sticky=tk.W, padx=5)
         
-        self.radio_c = ttk.Radiobutton(choices_frame, text="C", variable=self.answer_var, value="C", state=tk.DISABLED)
-        self.radio_c.grid(row=2, column=0, padx=10, pady=5)
+        self.radio_c = ttk.Radiobutton(choices_frame, text="", variable=self.answer_var, value="C", state=tk.DISABLED)
+        self.radio_c.grid(row=2, column=0, padx=5, pady=5)
         self.choice_c_label = tk.Label(choices_frame, text="", wraplength=400, justify=tk.LEFT)
         self.choice_c_label.grid(row=2, column=1, sticky=tk.W, padx=5)
         
         # Submit button
         self.submit_button = ttk.Button(question_frame, text="Submit Answer", command=self.submit_answer, state=tk.DISABLED)
-        self.submit_button.grid(row=2, column=0, columnspan=3, pady=10)
+        self.submit_button.grid(row=3, column=0, columnspan=3, pady=15)
         
         # Scoreboard frame
         scoreboard_frame = ttk.LabelFrame(main_frame, text="Scoreboard", padding="10")
