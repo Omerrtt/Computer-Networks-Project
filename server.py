@@ -325,22 +325,25 @@ class QuizServer:
                 self.log(f"Client '{client_name}' connected from {address}")
                 self.update_clients_list()
                 
-                # Notify other clients about the new connection
-                self.broadcast_message({
-                    "type": "player_connected",
-                    "player_name": client_name,
-                    "message": f"{client_name} has joined the game",
-                    "total_players": len(self.clients)
-                }, exclude_socket=client_socket)  # Don't send to the newly connected client
-                
-                # Send current scoreboard
+                # Send current scoreboard to new client first
                 self.send_scoreboard()
+                
+                # Notify other clients about the new connection (with delay to ensure they're ready)
+                if len(self.clients) > 1:  # Only if there are other clients
+                    player_name_copy = client_name
+                    total_players_copy = len(self.clients)
+                    self.root.after(200, lambda: self.broadcast_message({
+                        "type": "player_connected",
+                        "player_name": player_name_copy,
+                        "message": f"{player_name_copy} has joined the game",
+                        "total_players": total_players_copy
+                    }, exclude_socket=client_socket))
                 
                 # Auto-start game if 2+ players and questions configured
                 self.update_start_game_button()
                 if len(self.clients) >= 2 and self.num_questions_var.get() and not self.is_game_active:
-                    # Auto-start after a short delay to allow UI updates
-                    self.root.after(500, self.auto_start_game)
+                    # Auto-start after a delay to allow all clients to be ready
+                    self.root.after(1000, self.auto_start_game)
                 
                 # Keep connection alive and handle messages
                 while self.is_listening:
@@ -492,8 +495,8 @@ class QuizServer:
             # Send initial scoreboard
             self.send_scoreboard()
             
-            # Send first question
-            self.send_next_question()
+            # Send first question with a small delay to ensure all clients are ready
+            self.root.after(300, self.send_next_question)
             
         except Exception as e:
             self.log(f"Error starting game: {e}")
@@ -516,8 +519,8 @@ class QuizServer:
         # Reset answers for this question
         self.answers_received[self.current_question_index] = {}
         
-        # Broadcast question
-        self.broadcast_message({
+        # Broadcast question to all connected clients
+        question_message = {
             "type": "question",
             "question_number": self.current_question_index + 1,
             "total_questions": self.num_questions,
@@ -525,7 +528,9 @@ class QuizServer:
             "A": question['A'],
             "B": question['B'],
             "C": question['C']
-        })
+        }
+        self.log(f"Broadcasting question to {len(self.clients)} clients...")
+        self.broadcast_message(question_message)
         
     def process_question_answers(self):
         if self.current_question_index not in self.answers_received:

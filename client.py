@@ -335,7 +335,8 @@ class QuizClient:
                 "B": message.get("B", ""),
                 "C": message.get("C", "")
             }
-            self.root.after(0, lambda: self.display_question(question_data))
+            self.log(f"Received question {question_data['question_number']}: {question_data['question']}")
+            self.root.after(0, lambda qd=question_data: self.display_question(qd))
             
         elif msg_type == "answer_result":
             result_msg = message.get("message", "")
