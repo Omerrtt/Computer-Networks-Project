@@ -62,6 +62,7 @@ class QuizClient:
         # Question frame
         question_frame = ttk.LabelFrame(main_frame, text="Question", padding="10")
         question_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        question_frame.columnconfigure(0, weight=1)
         main_frame.rowconfigure(1, weight=1)
         
         # Question text
@@ -71,7 +72,7 @@ class QuizClient:
         
         # Answer choices frame
         choices_frame = ttk.Frame(question_frame)
-        choices_frame.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=10)
+        choices_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
         
         self.answer_var = tk.StringVar()
         self.radio_a = ttk.Radiobutton(choices_frame, text="", variable=self.answer_var, value="A", state=tk.DISABLED)
@@ -89,9 +90,12 @@ class QuizClient:
         self.choice_c_label = tk.Label(choices_frame, text="", wraplength=400, justify=tk.LEFT)
         self.choice_c_label.grid(row=2, column=1, sticky=tk.W, padx=5)
         
-        # Submit button
-        self.submit_button = ttk.Button(question_frame, text="Submit Answer", command=self.submit_answer, state=tk.DISABLED)
-        self.submit_button.grid(row=3, column=0, columnspan=3, pady=15)
+        # Submit button - placed directly in question_frame, not in choices_frame
+        self.submit_button = tk.Button(question_frame, text="Submit Answer", command=self.submit_answer, 
+                                       state="disabled", font=("Arial", 11, "bold"), bg="#4CAF50", fg="white",
+                                       activebackground="#45a049", disabledforeground="gray",
+                                       relief=tk.RAISED, bd=3, cursor="hand2", height=2)
+        self.submit_button.grid(row=2, column=0, columnspan=3, pady=20, padx=10, sticky=(tk.W, tk.E))
         
         # Scoreboard frame
         scoreboard_frame = ttk.LabelFrame(main_frame, text="Scoreboard", padding="10")
@@ -402,7 +406,7 @@ class QuizClient:
             self.radio_a.config(state=tk.NORMAL)
             self.radio_b.config(state=tk.NORMAL)
             self.radio_c.config(state=tk.NORMAL)
-            self.submit_button.config(state=tk.NORMAL)
+            self.submit_button.config(state="normal")
             self.answer_var.set("")
             
             self.log(f"Question {question_data['question_number']}: {question_data['question']}")
