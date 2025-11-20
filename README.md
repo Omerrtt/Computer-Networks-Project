@@ -86,8 +86,29 @@ To connect from a different computer:
    - Look for "IPv4 Address" (e.g., 192.168.1.100)
 
 2. **Configure Firewall** (on the server computer):
-   - Allow incoming connections on the port (default: 12345)
-   - Or temporarily disable firewall for testing
+   
+   **Windows Firewall Ayarları:**
+   
+   **Yöntem 1: PowerShell ile (Önerilen)**
+   - PowerShell'i **Yönetici olarak** açın
+   - Şu komutu çalıştırın:
+     ```powershell
+     New-NetFirewallRule -DisplayName "Quiz Server - Port 12345" -Direction Inbound -Protocol TCP -LocalPort 12345 -Action Allow -Profile Any
+     ```
+   - Veya proje klasöründeki `firewall_setup.ps1` script'ini yönetici olarak çalıştırın
+   
+   **Yöntem 2: Windows Defender Firewall GUI ile**
+   - Windows tuşu + R, `wf.msc` yazıp Enter
+   - Sol taraftan "Gelen Kurallar" (Inbound Rules) seçin
+   - Sağ taraftan "Yeni Kural" (New Rule) tıklayın
+   - "Port" seçeneğini seçin, İleri
+   - "TCP" seçin, "Belirli yerel bağlantı noktaları" (Specific local ports) seçin
+   - Port numarası: `12345`, İleri
+   - "Bağlantıya izin ver" (Allow the connection) seçin, İleri
+   - Tüm profilleri işaretleyin (Domain, Private, Public), İleri
+   - İsim: "Quiz Server - Port 12345", Son
+   
+   **Not:** Firewall ayarları yapılmazsa client bağlanamaz!
 
 3. **Connect from Client**:
    - Enter the server's IP address in the Client GUI
@@ -106,6 +127,92 @@ To connect from a different computer:
 
 ## Troubleshooting
 
-- **Connection error**: Make sure the server is running and you entered the correct IP/Port
-- **Name error**: Use a different username for each client
-- **Timeout error**: Check firewall settings or verify the IP address is correct
+### "Connection timeout" Hatası (Mac'ten Windows'a Bağlanırken)
+
+Bu hata genellikle şu nedenlerden kaynaklanır. Aşağıdaki adımları sırayla kontrol edin:
+
+#### 1. Windows Firewall Kontrolü (Server Laptop'ta)
+
+**Firewall kuralının ekli olduğunu kontrol edin:**
+```powershell
+# PowerShell'i yönetici olarak açın ve çalıştırın:
+.\check_firewall.ps1
+```
+
+Eğer kural yoksa, ekleyin:
+```powershell
+New-NetFirewallRule -DisplayName "Quiz Server - Port 12345" -Direction Inbound -Protocol TCP -LocalPort 12345 -Action Allow -Profile Any
+```
+
+#### 2. Server'ın IP Adresini Doğrulama (Windows Laptop'ta)
+
+**Server çalışırken:**
+- Server GUI'de gösterilen IP adresini not edin
+- Veya Command Prompt'ta şu komutu çalıştırın:
+  ```cmd
+  ipconfig
+  ```
+- "IPv4 Address" değerini bulun (örn: 192.168.1.100)
+- **127.0.0.1 veya localhost kullanmayın!** Bu sadece aynı bilgisayardan bağlanmak için.
+
+#### 3. Ağ Bağlantısını Test Etme
+
+**Mac laptop'tan Windows laptop'a ping atın:**
+```bash
+# Mac Terminal'de:
+ping [WINDOWS_IP_ADDRESS]
+# Örnek: ping 192.168.1.100
+```
+
+Eğer ping başarısız olursa:
+- İki laptop aynı Wi-Fi ağında olmalı
+- Farklı ağlardaysa (örn: biri Wi-Fi, diğeri ethernet) bağlanamaz
+
+#### 4. Port Bağlantısını Test Etme
+
+**Windows laptop'ta (Server çalışırken):**
+```bash
+python test_connection.py 127.0.0.1 12345
+```
+
+**Mac laptop'tan:**
+```bash
+python test_connection.py [WINDOWS_IP_ADDRESS] 12345
+# Örnek: python test_connection.py 192.168.1.100 12345
+```
+
+#### 5. Server'ın Çalıştığını Doğrulama
+
+- Server GUI'de "Server started and listening on port 12345" mesajını görmelisiniz
+- "Connected Clients" listesi boş olmalı (henüz bağlanan yoksa)
+- Server'ın IP adresi doğru gösterilmeli
+
+#### 6. Mac Client Ayarları
+
+Mac'te client.py'yi çalıştırırken:
+- **Server IP:** Windows laptop'ın IP adresi (127.0.0.1 DEĞİL!)
+- **Port:** 12345 (veya server'da ayarladığınız port)
+- **Username:** Benzersiz bir isim
+
+### Diğer Hatalar
+
+- **Connection error**: Server çalışıyor mu kontrol edin, IP/Port doğru mu?
+- **Name error**: Her client için farklı bir username kullanın
+- **Connection refused**: Server çalışmıyor veya yanlış port
+- **Timeout error**: 
+  1. Firewall ayarlarını kontrol edin
+  2. IP adresinin doğru olduğundan emin olun
+  3. İki laptop'ın aynı ağda olduğunu doğrulayın
+  4. Server'ın çalıştığını kontrol edin
+
+### Hızlı Kontrol Listesi
+
+Mac'ten Windows'a bağlanırken:
+
+- [ ] Windows laptop'ta server.py çalışıyor
+- [ ] Windows Firewall'da port 12345 açık
+- [ ] Mac ve Windows aynı Wi-Fi ağında
+- [ ] Mac'ten Windows'a ping başarılı
+- [ ] Client'ta doğru IP adresi girildi (127.0.0.1 değil!)
+- [ ] Client'ta doğru port girildi (12345)
+- [ ] Username benzersiz
