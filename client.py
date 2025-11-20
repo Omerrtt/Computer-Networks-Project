@@ -281,20 +281,30 @@ class QuizClient:
                 self.disconnect()
                 
     def receive_messages(self):
+        buffer = b""  # Buffer for incomplete messages (bytes)
         while self.is_connected:
             try:
                 if not self.client_socket:
                     break
                     
-                data = self.client_socket.recv(1024).decode('utf-8')
+                data = self.client_socket.recv(4096)
                 if not data:
                     break
-                    
-                try:
-                    message = json.loads(data)
-                    self.handle_message(message)
-                except json.JSONDecodeError:
-                    self.log("Received invalid message format")
+                
+                # Add to buffer
+                buffer += data
+                
+                # Process all complete messages (separated by newline)
+                while b'\n' in buffer:
+                    # Split at first newline
+                    line, buffer = buffer.split(b'\n', 1)
+                    if line:
+                        try:
+                            message = json.loads(line.decode('utf-8'))
+                            self.handle_message(message)
+                        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                            self.log(f"Error parsing message: {e}")
+                            self.log(f"Raw data: {line[:100]}...")  # Log first 100 chars for debugging
                     
             except ConnectionResetError:
                 self.log("Connection reset by server")

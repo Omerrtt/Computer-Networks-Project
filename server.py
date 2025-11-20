@@ -341,7 +341,8 @@ class QuizServer:
                 
                 # Auto-start game if 2+ players and questions configured
                 self.update_start_game_button()
-                if len(self.clients) >= 2 and self.num_questions_var.get() and not self.is_game_active:
+                num_questions = self.num_questions_var.get().strip()
+                if len(self.clients) >= 2 and num_questions and num_questions.isdigit() and int(num_questions) > 0 and not self.is_game_active:
                     # Auto-start after a delay to allow all clients to be ready
                     self.root.after(1000, self.auto_start_game)
                 
@@ -438,19 +439,35 @@ class QuizServer:
                 self.clients_listbox.insert(tk.END, client_info['name'])
                 
     def update_start_game_button(self):
-        can_start = (
-            len(self.clients) >= 2 and
-            self.num_questions_var.get() and
-            not self.is_game_active and
-            self.is_listening
-        )
-        self.start_game_button.config(state=tk.NORMAL if can_start else tk.DISABLED)
+        """Update the start game button state - must be called from GUI thread"""
+        def update():
+            num_questions = self.num_questions_var.get().strip()
+            can_start = (
+                len(self.clients) >= 2 and
+                num_questions and
+                num_questions.isdigit() and
+                int(num_questions) > 0 and
+                not self.is_game_active and
+                self.is_listening
+            )
+            self.start_game_button.config(state=tk.NORMAL if can_start else tk.DISABLED)
+            if can_start:
+                self.log(f"Start Game button enabled: {len(self.clients)} players, {num_questions} questions")
+        
+        # Ensure we're on the GUI thread
+        if threading.current_thread() == threading.main_thread():
+            update()
+        else:
+            self.root.after(0, update)
         
     def auto_start_game(self):
         """Automatically start the game when conditions are met"""
+        num_questions = self.num_questions_var.get().strip()
         if (
             len(self.clients) >= 2 and
-            self.num_questions_var.get() and
+            num_questions and
+            num_questions.isdigit() and
+            int(num_questions) > 0 and
             not self.is_game_active and
             self.is_listening
         ):
@@ -674,7 +691,8 @@ class QuizServer:
     def send_message(self, client_socket, message):
         try:
             data = json.dumps(message).encode('utf-8')
-            client_socket.sendall(data)
+            # Add newline separator to help client parse messages
+            client_socket.sendall(data + b'\n')
         except Exception as e:
             self.log(f"Error sending message: {e}")
             
