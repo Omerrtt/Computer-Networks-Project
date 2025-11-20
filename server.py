@@ -339,12 +339,8 @@ class QuizServer:
                         "total_players": total_players_copy
                     }, exclude_socket=client_socket))
                 
-                # Auto-start game if 2+ players and questions configured
+                # Update start game button (but don't auto-start)
                 self.update_start_game_button()
-                num_questions = self.num_questions_var.get().strip()
-                if len(self.clients) >= 2 and num_questions and num_questions.isdigit() and int(num_questions) > 0 and not self.is_game_active:
-                    # Auto-start after a delay to allow all clients to be ready
-                    self.root.after(1000, self.auto_start_game)
                 
                 # Keep connection alive and handle messages
                 while self.is_listening:
@@ -460,20 +456,6 @@ class QuizServer:
         else:
             self.root.after(0, update)
         
-    def auto_start_game(self):
-        """Automatically start the game when conditions are met"""
-        num_questions = self.num_questions_var.get().strip()
-        if (
-            len(self.clients) >= 2 and
-            num_questions and
-            num_questions.isdigit() and
-            int(num_questions) > 0 and
-            not self.is_game_active and
-            self.is_listening
-        ):
-            self.log("Auto-starting game...")
-            self.start_game()
-        
     def start_game(self):
         try:
             # Load embedded questions
@@ -546,8 +528,11 @@ class QuizServer:
             "B": question['B'],
             "C": question['C']
         }
-        self.log(f"Broadcasting question to {len(self.clients)} clients...")
+        self.log(f"Broadcasting question {self.current_question_index + 1} to {len(self.clients)} clients...")
+        with self.lock:
+            client_count = len(self.clients)
         self.broadcast_message(question_message)
+        self.log(f"Question broadcast completed to {client_count} clients")
         
     def process_question_answers(self):
         if self.current_question_index not in self.answers_received:
@@ -691,10 +676,20 @@ class QuizServer:
     def send_message(self, client_socket, message):
         try:
             data = json.dumps(message).encode('utf-8')
-            # Add newline separator to help client parse messages
+            # Send message with newline separator
             client_socket.sendall(data + b'\n')
+            # Debug log for question messages
+            if message.get("type") == "question":
+                client_name = self.clients.get(client_socket, {}).get('name', 'Unknown')
+                self.log(f"Sent question to {client_name}: {message.get('question', '')[:50]}...")
         except Exception as e:
             self.log(f"Error sending message: {e}")
+            # Try to get client name for better error reporting
+            try:
+                client_name = self.clients.get(client_socket, {}).get('name', 'Unknown')
+                self.log(f"Failed to send message to {client_name}")
+            except:
+                pass
             
     def broadcast_message(self, message, exclude_socket=None):
         """Broadcast message to all clients, optionally excluding one"""

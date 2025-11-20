@@ -345,8 +345,11 @@ class QuizClient:
                 "B": message.get("B", ""),
                 "C": message.get("C", "")
             }
-            self.log(f"Received question {question_data['question_number']}: {question_data['question']}")
-            self.root.after(0, lambda qd=question_data: self.display_question(qd))
+            self.log(f"Received question {question_data['question_number']}/{question_data['total_questions']}: {question_data['question']}")
+            self.log(f"Choices - A: {question_data['A']}, B: {question_data['B']}, C: {question_data['C']}")
+            # Use a copy to avoid closure issues
+            qd_copy = question_data.copy()
+            self.root.after(0, lambda: self.display_question(qd_copy))
             
         elif msg_type == "answer_result":
             result_msg = message.get("message", "")
@@ -376,24 +379,34 @@ class QuizClient:
             self.root.after(0, self.disconnect)
             
     def display_question(self, question_data):
-        self.is_in_game = True
-        self.current_question = question_data
-        
-        question_text = f"Question {question_data['question_number']}/{question_data['total_questions']}: {question_data['question']}"
-        self.question_label.config(text=question_text)
-        
-        self.choice_a_label.config(text=f"A: {question_data['A']}")
-        self.choice_b_label.config(text=f"B: {question_data['B']}")
-        self.choice_c_label.config(text=f"C: {question_data['C']}")
-        
-        # Enable answer UI
-        self.radio_a.config(state=tk.NORMAL)
-        self.radio_b.config(state=tk.NORMAL)
-        self.radio_c.config(state=tk.NORMAL)
-        self.submit_button.config(state=tk.NORMAL)
-        self.answer_var.set("")
-        
-        self.log(f"Question {question_data['question_number']}: {question_data['question']}")
+        try:
+            self.log(f"Displaying question {question_data.get('question_number', 0)} in UI...")
+            self.is_in_game = True
+            self.current_question = question_data
+            
+            question_text = f"Question {question_data['question_number']}/{question_data['total_questions']}: {question_data['question']}"
+            self.question_label.config(text=question_text)
+            
+            choice_a_text = f"A: {question_data['A']}"
+            choice_b_text = f"B: {question_data['B']}"
+            choice_c_text = f"C: {question_data['C']}"
+            
+            self.choice_a_label.config(text=choice_a_text)
+            self.choice_b_label.config(text=choice_b_text)
+            self.choice_c_label.config(text=choice_c_text)
+            
+            # Enable answer UI
+            self.radio_a.config(state=tk.NORMAL)
+            self.radio_b.config(state=tk.NORMAL)
+            self.radio_c.config(state=tk.NORMAL)
+            self.submit_button.config(state=tk.NORMAL)
+            self.answer_var.set("")
+            
+            self.log(f"Question UI updated successfully - Question {question_data['question_number']}: {question_data['question'][:50]}...")
+        except Exception as e:
+            self.log(f"Error displaying question: {e}")
+            import traceback
+            self.log(f"Traceback: {traceback.format_exc()}")
         
     def submit_answer(self):
         if not self.is_in_game or not self.current_question:
