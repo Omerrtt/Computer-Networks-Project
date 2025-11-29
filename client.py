@@ -10,7 +10,7 @@ class QuizClient:
     def __init__(self, root):
         self.root = root
         self.root.title("Quiz Client")
-        self.root.geometry("700x600")
+        self.root.geometry("700x700")
         
         # Client state
         self.client_socket = None
@@ -36,8 +36,8 @@ class QuizClient:
         self.root.rowconfigure(0, weight=1)
         
         # Connection frame
-        conn_frame = ttk.LabelFrame(main_frame, text="Connection", padding="10")
-        conn_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        conn_frame = ttk.LabelFrame(main_frame, text="Connection", padding="5")
+        conn_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=2)
         
         # Server IP
         ttk.Label(conn_frame, text="Server IP:").grid(row=0, column=0, sticky=tk.W, padx=5)
@@ -65,51 +65,62 @@ class QuizClient:
         question_frame = ttk.LabelFrame(main_frame, text="Question", padding="10")
         question_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         question_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(1, weight=1)
+        main_frame.rowconfigure(1, weight=4) # Give MOST weight to question area
         
         # Question text
         self.question_label = tk.Label(question_frame, text="Waiting for question...", 
-                                       wraplength=600, justify=tk.LEFT, font=("Arial", 11))
-        self.question_label.grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=10)
+                                       wraplength=680, justify=tk.LEFT, font=("Arial", 10, "bold"))
+        self.question_label.pack(side=tk.TOP, fill=tk.X, pady=(10, 10), padx=10)
         
-        # Answer choices frame
+        # Answer choices frame - use pack with expand=True to fill remaining space
         choices_frame = ttk.Frame(question_frame)
-        choices_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        choices_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         self.answer_var = tk.StringVar()
-        self.radio_a = ttk.Radiobutton(choices_frame, text="", variable=self.answer_var, value="A", state=tk.DISABLED)
-        self.radio_a.grid(row=0, column=0, padx=5)
-        self.choice_a_label = tk.Label(choices_frame, text="", wraplength=400, justify=tk.LEFT)
-        self.choice_a_label.grid(row=0, column=1, sticky=tk.W, padx=5)
         
-        self.radio_b = ttk.Radiobutton(choices_frame, text="", variable=self.answer_var, value="B", state=tk.DISABLED)
-        self.radio_b.grid(row=1, column=0, padx=5, pady=5)
-        self.choice_b_label = tk.Label(choices_frame, text="", wraplength=400, justify=tk.LEFT)
-        self.choice_b_label.grid(row=1, column=1, sticky=tk.W, padx=5)
+        # Choice A
+        frame_a = ttk.Frame(choices_frame)
+        frame_a.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        self.radio_a = ttk.Radiobutton(frame_a, text="", variable=self.answer_var, value="A", state=tk.DISABLED)
+        self.radio_a.pack(side=tk.TOP, anchor=tk.W)
+        self.choice_a_label = tk.Label(frame_a, text="", wraplength=200, justify=tk.LEFT, font=("Arial", 9))
+        self.choice_a_label.pack(side=tk.TOP, anchor=tk.W, padx=20)
         
-        self.radio_c = ttk.Radiobutton(choices_frame, text="", variable=self.answer_var, value="C", state=tk.DISABLED)
-        self.radio_c.grid(row=2, column=0, padx=5, pady=5)
-        self.choice_c_label = tk.Label(choices_frame, text="", wraplength=400, justify=tk.LEFT)
-        self.choice_c_label.grid(row=2, column=1, sticky=tk.W, padx=5)
+        # Choice B
+        frame_b = ttk.Frame(choices_frame)
+        frame_b.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        self.radio_b = ttk.Radiobutton(frame_b, text="", variable=self.answer_var, value="B", state=tk.DISABLED)
+        self.radio_b.pack(side=tk.TOP, anchor=tk.W)
+        self.choice_b_label = tk.Label(frame_b, text="", wraplength=200, justify=tk.LEFT, font=("Arial", 9))
+        self.choice_b_label.pack(side=tk.TOP, anchor=tk.W, padx=20)
         
-        # Submit button - placed directly in question_frame, below choices_frame
-        self.submit_button = tk.Button(question_frame, text="Submit Answer", command=self.submit_answer, 
-                                       state="disabled", font=("Arial", 14, "bold"), bg="#4CAF50", fg="white",
+        # Choice C
+        frame_c = ttk.Frame(choices_frame)
+        frame_c.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        self.radio_c = ttk.Radiobutton(frame_c, text="", variable=self.answer_var, value="C", state=tk.DISABLED)
+        self.radio_c.pack(side=tk.TOP, anchor=tk.W)
+        self.choice_c_label = tk.Label(frame_c, text="", wraplength=200, justify=tk.LEFT, font=("Arial", 9))
+        self.choice_c_label.pack(side=tk.TOP, anchor=tk.W, padx=20)
+        
+        # Submit button - placed in main frame to ensure visibility at bottom
+        self.submit_button = tk.Button(main_frame, text="Submit Answer", command=self.submit_answer, 
+                                       state="disabled", font=("Arial", 12, "bold"), bg="#4CAF50", fg="white",
                                        activebackground="#45a049", disabledforeground="gray",
-                                       relief=tk.RAISED, bd=4, cursor="hand2", height=3, width=30)
-        self.submit_button.grid(row=2, column=0, columnspan=3, pady=25, padx=20, sticky=(tk.W, tk.E))
+                                       relief=tk.RAISED, bd=3, cursor="hand2", height=1)
+        self.submit_button.grid(row=4, column=0, columnspan=2, pady=5, padx=20, sticky=(tk.W, tk.E, tk.S))
+        main_frame.rowconfigure(4, weight=0) # Don't expand this row
         
         # Scoreboard frame
-        scoreboard_frame = ttk.LabelFrame(main_frame, text="Scoreboard", padding="10")
-        scoreboard_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        scoreboard_frame = ttk.LabelFrame(main_frame, text="Scoreboard", padding="5")
+        scoreboard_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=2)
         
-        self.scoreboard_listbox = tk.Listbox(scoreboard_frame, height=5)
+        self.scoreboard_listbox = tk.Listbox(scoreboard_frame, height=3)
         self.scoreboard_listbox.grid(row=0, column=0, sticky=(tk.W, tk.E))
         scoreboard_frame.columnconfigure(0, weight=1)
         
         # Activity log frame
-        log_frame = ttk.LabelFrame(main_frame, text="Client Activity Log", padding="10")
-        log_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        log_frame = ttk.LabelFrame(main_frame, text="Client Activity Log", padding="5")
+        log_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=2)
         main_frame.rowconfigure(3, weight=1)
         
         # Scrollbar for log
@@ -117,7 +128,7 @@ class QuizClient:
         log_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Activity log listbox
-        self.log_listbox = tk.Listbox(log_frame, yscrollcommand=log_scrollbar.set, height=10)
+        self.log_listbox = tk.Listbox(log_frame, yscrollcommand=log_scrollbar.set, height=6)
         self.log_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         log_scrollbar.config(command=self.log_listbox.yview)
         
@@ -408,7 +419,8 @@ class QuizClient:
             self.radio_a.config(state=tk.NORMAL)
             self.radio_b.config(state=tk.NORMAL)
             self.radio_c.config(state=tk.NORMAL)
-            self.submit_button.config(state="normal")
+            self.radio_c.config(state=tk.NORMAL)
+            self.submit_button.config(state="normal", text="Submit Answer", bg="#4CAF50")
             self.answer_var.set("")
             
             self.log(f"Question {question_data['question_number']}: {question_data['question']}")
@@ -435,6 +447,7 @@ class QuizClient:
         })
         
         self.log(f"Answer submitted: {answer}. Waiting for other players...")
+        self.submit_button.config(text="Waiting for other players...", bg="#808080")
         
     def disable_answer_ui(self):
         self.radio_a.config(state=tk.DISABLED)

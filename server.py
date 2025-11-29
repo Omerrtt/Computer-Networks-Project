@@ -7,6 +7,7 @@ import json
 import time
 
 # Embedded questions
+# Embedded questions
 EMBEDDED_QUESTIONS = [
     {
         'question': 'How many times has Diego Maradona participated in World Cups as team captain?',
@@ -79,6 +80,7 @@ EMBEDDED_QUESTIONS = [
         'correct': 'B'
     }
 ]
+
 
 class QuizServer:
     def __init__(self, root):
@@ -377,6 +379,7 @@ class QuizServer:
                 return
                 
             # Record answer with server timestamp
+            should_process = False
             with self.lock:
                 if self.current_question_index not in self.answers_received:
                     self.answers_received[self.current_question_index] = {}
@@ -390,7 +393,11 @@ class QuizServer:
                     
                     # Check if all players answered
                     if len(self.answers_received[self.current_question_index]) == len(self.clients):
-                        self.process_question_answers()
+                        should_process = True
+            
+            # Process outside the lock to avoid deadlock with broadcast_message
+            if should_process:
+                self.process_question_answers()
                         
     def disconnect_client(self, client_socket):
         with self.lock:
@@ -419,9 +426,33 @@ class QuizServer:
                         "message": f"{client_name} has disconnected"
                     })
                     
-                    # Check if game should end
+                    # Check if game should end OR if we should process the current question
                     if len(self.clients) < 2:
+                        # If only 1 player left, we might need to finish the current question first
+                        # But the spec says: "When a client disconnects during the answering phase and a single player remains after this disconnection, the latest question must be answered before ending the game."
+                        
+                        # So, if we are waiting for answers, check if the remaining player has answered
+                        remaining_client_name = list(self.client_names)[0] if self.client_names else None
+                        
+                        if remaining_client_name:
+                             # Check if the remaining player has already answered the current question
+                            current_answers = self.answers_received.get(self.current_question_index, {})
+                            if remaining_client_name in current_answers:
+                                # Remaining player has answered, so we can process the question now
+                                self.log(f"Only one player left ({remaining_client_name}) and they have answered. Processing question...")
+                                self.process_question_answers()
+                                # The game will be ended in send_next_question or we can force it here after a delay?
+                                # Actually process_question_answers calls send_next_question which checks player count.
+                                # But we need to make sure we don't end immediately if we are just waiting for the result display.
+                                return 
+
                         self.end_game("Less than 2 players remaining")
+                    else:
+                        # Game continues, but check if everyone remaining has answered
+                        current_answers = self.answers_received.get(self.current_question_index, {})
+                        if len(current_answers) == len(self.clients):
+                            self.process_question_answers()
+
                 else:
                     self.send_scoreboard()
                     
