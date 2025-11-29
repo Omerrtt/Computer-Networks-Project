@@ -87,28 +87,28 @@ To connect from a different computer:
 
 2. **Configure Firewall** (on the server computer):
    
-   **Windows Firewall Ayarları:**
+   **Windows Firewall Settings:**
    
-   **Yöntem 1: PowerShell ile (Önerilen)**
-   - PowerShell'i **Yönetici olarak** açın
-   - Şu komutu çalıştırın:
+   **Method 1: Via PowerShell (Recommended)**
+   - Open PowerShell as **Administrator**
+   - Run the following command:
      ```powershell
      New-NetFirewallRule -DisplayName "Quiz Server - Port 12345" -Direction Inbound -Protocol TCP -LocalPort 12345 -Action Allow -Profile Any
      ```
-   - Veya proje klasöründeki `firewall_setup.ps1` script'ini yönetici olarak çalıştırın
+   - Or run the `firewall_setup.ps1` script in the project folder as administrator
    
-   **Yöntem 2: Windows Defender Firewall GUI ile**
-   - Windows tuşu + R, `wf.msc` yazıp Enter
-   - Sol taraftan "Gelen Kurallar" (Inbound Rules) seçin
-   - Sağ taraftan "Yeni Kural" (New Rule) tıklayın
-   - "Port" seçeneğini seçin, İleri
-   - "TCP" seçin, "Belirli yerel bağlantı noktaları" (Specific local ports) seçin
-   - Port numarası: `12345`, İleri
-   - "Bağlantıya izin ver" (Allow the connection) seçin, İleri
-   - Tüm profilleri işaretleyin (Domain, Private, Public), İleri
-   - İsim: "Quiz Server - Port 12345", Son
+   **Method 2: Via Windows Defender Firewall GUI**
+   - Press Windows Key + R, type `wf.msc` and press Enter
+   - Select "Inbound Rules" from the left side
+   - Click "New Rule" from the right side
+   - Select "Port", Next
+   - Select "TCP", select "Specific local ports"
+   - Port number: `12345`, Next
+   - Select "Allow the connection", Next
+   - Check all profiles (Domain, Private, Public), Next
+   - Name: "Quiz Server - Port 12345", Finish
    
-   **Not:** Firewall ayarları yapılmazsa client bağlanamaz!
+   **Note:** If firewall settings are not configured, the client cannot connect!
 
 3. **Connect from Client**:
    - Enter the server's IP address in the Client GUI
@@ -127,92 +127,92 @@ To connect from a different computer:
 
 ## Troubleshooting
 
-### "Connection timeout" Hatası (Mac'ten Windows'a Bağlanırken)
+### "Connection timeout" Error (Connecting from Mac to Windows)
 
-Bu hata genellikle şu nedenlerden kaynaklanır. Aşağıdaki adımları sırayla kontrol edin:
+This error is usually caused by the following reasons. Check the steps below in order:
 
-#### 1. Windows Firewall Kontrolü (Server Laptop'ta)
+#### 1. Windows Firewall Check (On Server Laptop)
 
-**Firewall kuralının ekli olduğunu kontrol edin:**
+**Check if the firewall rule is added:**
 ```powershell
-# PowerShell'i yönetici olarak açın ve çalıştırın:
+# Open PowerShell as administrator and run:
 .\check_firewall.ps1
 ```
 
-Eğer kural yoksa, ekleyin:
+If the rule does not exist, add it:
 ```powershell
 New-NetFirewallRule -DisplayName "Quiz Server - Port 12345" -Direction Inbound -Protocol TCP -LocalPort 12345 -Action Allow -Profile Any
 ```
 
-#### 2. Server'ın IP Adresini Doğrulama (Windows Laptop'ta)
+#### 2. Verify Server IP Address (On Windows Laptop)
 
-**Server çalışırken:**
-- Server GUI'de gösterilen IP adresini not edin
-- Veya Command Prompt'ta şu komutu çalıştırın:
+**While Server is running:**
+- Note the IP address shown in the Server GUI
+- Or run the following command in Command Prompt:
   ```cmd
   ipconfig
   ```
-- "IPv4 Address" değerini bulun (örn: 192.168.1.100)
-- **127.0.0.1 veya localhost kullanmayın!** Bu sadece aynı bilgisayardan bağlanmak için.
+- Find the "IPv4 Address" value (e.g., 192.168.1.100)
+- **Do not use 127.0.0.1 or localhost!** This is only for connecting from the same computer.
 
-#### 3. Ağ Bağlantısını Test Etme
+#### 3. Test Network Connection
 
-**Mac laptop'tan Windows laptop'a ping atın:**
+**Ping the Windows laptop from the Mac laptop:**
 ```bash
-# Mac Terminal'de:
+# In Mac Terminal:
 ping [WINDOWS_IP_ADDRESS]
-# Örnek: ping 192.168.1.100
+# Example: ping 192.168.1.100
 ```
 
-Eğer ping başarısız olursa:
-- İki laptop aynı Wi-Fi ağında olmalı
-- Farklı ağlardaysa (örn: biri Wi-Fi, diğeri ethernet) bağlanamaz
+If ping fails:
+- Both laptops must be on the same Wi-Fi network
+- They cannot connect if on different networks (e.g., one on Wi-Fi, one on ethernet)
 
-#### 4. Port Bağlantısını Test Etme
+#### 4. Test Port Connection
 
-**Windows laptop'ta (Server çalışırken):**
+**On Windows laptop (While Server is running):**
 ```bash
 python test_connection.py 127.0.0.1 12345
 ```
 
-**Mac laptop'tan:**
+**From Mac laptop:**
 ```bash
 python test_connection.py [WINDOWS_IP_ADDRESS] 12345
-# Örnek: python test_connection.py 192.168.1.100 12345
+# Example: python test_connection.py 192.168.1.100 12345
 ```
 
-#### 5. Server'ın Çalıştığını Doğrulama
+#### 5. Verify Server is Running
 
-- Server GUI'de "Server started and listening on port 12345" mesajını görmelisiniz
-- "Connected Clients" listesi boş olmalı (henüz bağlanan yoksa)
-- Server'ın IP adresi doğru gösterilmeli
+- You should see "Server started and listening on port 12345" message in Server GUI
+- "Connected Clients" list should be empty (if no one connected yet)
+- Server IP address should be shown correctly
 
-#### 6. Mac Client Ayarları
+#### 6. Mac Client Settings
 
-Mac'te client.py'yi çalıştırırken:
-- **Server IP:** Windows laptop'ın IP adresi (127.0.0.1 DEĞİL!)
-- **Port:** 12345 (veya server'da ayarladığınız port)
-- **Username:** Benzersiz bir isim
+When running client.py on Mac:
+- **Server IP:** Windows laptop's IP address (NOT 127.0.0.1!)
+- **Port:** 12345 (or whatever port you set on server)
+- **Username:** A unique name
 
-### Diğer Hatalar
+### Other Errors
 
-- **Connection error**: Server çalışıyor mu kontrol edin, IP/Port doğru mu?
-- **Name error**: Her client için farklı bir username kullanın
-- **Connection refused**: Server çalışmıyor veya yanlış port
+- **Connection error**: Check if Server is running, IP/Port correct?
+- **Name error**: Use a different username for each client
+- **Connection refused**: Server not running or wrong port
 - **Timeout error**: 
-  1. Firewall ayarlarını kontrol edin
-  2. IP adresinin doğru olduğundan emin olun
-  3. İki laptop'ın aynı ağda olduğunu doğrulayın
-  4. Server'ın çalıştığını kontrol edin
+  1. Check firewall settings
+  2. Ensure IP address is correct
+  3. Verify both laptops are on the same network
+  4. Check if Server is running
 
-### Hızlı Kontrol Listesi
+### Quick Checklist
 
-Mac'ten Windows'a bağlanırken:
+When connecting from Mac to Windows:
 
-- [ ] Windows laptop'ta server.py çalışıyor
-- [ ] Windows Firewall'da port 12345 açık
-- [ ] Mac ve Windows aynı Wi-Fi ağında
-- [ ] Mac'ten Windows'a ping başarılı
-- [ ] Client'ta doğru IP adresi girildi (127.0.0.1 değil!)
-- [ ] Client'ta doğru port girildi (12345)
-- [ ] Username benzersiz
+- [ ] server.py is running on Windows laptop
+- [ ] Port 12345 is open in Windows Firewall
+- [ ] Mac and Windows are on the same Wi-Fi network
+- [ ] Ping from Mac to Windows is successful
+- [ ] Correct IP address entered in Client (not 127.0.0.1!)
+- [ ] Correct port entered in Client (12345)
+- [ ] Username is unique
