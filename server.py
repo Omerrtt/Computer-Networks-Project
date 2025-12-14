@@ -5,81 +5,7 @@ from tkinter import ttk, messagebox
 from datetime import datetime
 import json
 import time
-
-# Embedded questions
-# Embedded questions
-EMBEDDED_QUESTIONS = [
-    {
-        'question': 'How many times has Diego Maradona participated in World Cups as team captain?',
-        'A': '3',
-        'B': '4',
-        'C': '5',
-        'correct': 'A'
-    },
-    {
-        'question': 'Which of the following is NOT a country on the Asian continent?',
-        'A': 'Pakistan',
-        'B': 'Laos',
-        'C': 'Tonga',
-        'correct': 'C'
-    },
-    {
-        'question': 'What is the name of the 2nd Robin in Batman comics?',
-        'A': 'Dick Grayson',
-        'B': 'Jason Todd',
-        'C': 'Tim Drake',
-        'correct': 'B'
-    },
-    {
-        'question': 'Who is the painter of "Saturn Devouring His Son"?',
-        'A': 'Pablo Picasso',
-        'B': 'Claude Monet',
-        'C': 'Francisco Goya',
-        'correct': 'C'
-    },
-    {
-        'question': 'Which of the following is widely described as the world\'s largest soda lake?',
-        'A': 'Dead Sea',
-        'B': 'Lake Van in Turkey',
-        'C': 'Lake Turkana in Kenya',
-        'correct': 'B'
-    },
-    {
-        'question': 'Which of these games was created by a Turkish developer?',
-        'A': 'Mount & Blade',
-        'B': 'Europa Universalis',
-        'C': 'Kingdom Come Deliverance',
-        'correct': 'A'
-    },
-    {
-        'question': 'Which ocean is the largest by area?',
-        'A': 'Indian Ocean',
-        'B': 'Atlantic Ocean',
-        'C': 'Pacific Ocean',
-        'correct': 'C'
-    },
-    {
-        'question': 'What does "CPU" stand for?',
-        'A': 'Central Processing Unit',
-        'B': 'Core Parallel Unit',
-        'C': 'Central Program Utility',
-        'correct': 'A'
-    },
-    {
-        'question': 'Who wrote what is widely considered the first modern science fiction novel?',
-        'A': 'H. G. Wells',
-        'B': 'Isaac Asimov',
-        'C': 'Mary Shelley',
-        'correct': 'C'
-    },
-    {
-        'question': 'Which of these is a real moon of Jupiter?',
-        'A': 'Titan',
-        'B': 'Thebe',
-        'C': 'Triton',
-        'correct': 'B'
-    }
-]
+import os
 
 
 class QuizServer:
@@ -130,18 +56,27 @@ class QuizServer:
         game_frame = ttk.LabelFrame(main_frame, text="Game Configuration", padding="10")
         game_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
         
+        # Question file input
+        ttk.Label(game_frame, text="Question File:").grid(row=0, column=0, sticky=tk.W, padx=5)
+        self.question_file_var = tk.StringVar()
+        self.question_file_var.trace('w', lambda *args: self.on_question_file_changed())
+        question_file_entry = ttk.Entry(game_frame, textvariable=self.question_file_var, width=30)
+        question_file_entry.grid(row=0, column=1, sticky=tk.W, padx=5)
+        
         # Number of questions
-        ttk.Label(game_frame, text="Number of Questions:").grid(row=0, column=0, sticky=tk.W, padx=5)
+        ttk.Label(game_frame, text="Number of Questions:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         self.num_questions_var = tk.StringVar(value="5")  # Default to 5 questions
+        self.num_questions_var.trace('w', lambda *args: self.update_start_game_button())
         num_questions_entry = ttk.Entry(game_frame, textvariable=self.num_questions_var, width=15)
-        num_questions_entry.grid(row=0, column=1, sticky=tk.W, padx=5)
+        num_questions_entry.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
         
         # Available questions info
-        ttk.Label(game_frame, text=f"Available Questions: {len(EMBEDDED_QUESTIONS)}").grid(row=0, column=2, padx=10)
+        self.available_questions_label = ttk.Label(game_frame, text="Available Questions: 0")
+        self.available_questions_label.grid(row=1, column=2, padx=10, pady=5)
         
         # Start game button
         self.start_game_button = ttk.Button(game_frame, text="Start Game", command=self.start_game, state=tk.DISABLED)
-        self.start_game_button.grid(row=0, column=3, padx=10)
+        self.start_game_button.grid(row=1, column=3, padx=10, pady=5)
         
         # Connected clients frame
         clients_frame = ttk.LabelFrame(main_frame, text="Connected Clients", padding="10")
@@ -169,6 +104,129 @@ class QuizServer:
         log_scrollbar.config(command=self.log_listbox.yview)
         
         self.log("Server initialized. Configure and start the server.")
+        
+    def on_question_file_changed(self):
+        """Called when question file path changes"""
+        question_file = self.question_file_var.get().strip()
+        if question_file:
+            # Check if file exists
+            if os.path.exists(question_file):
+                self.log(f"Question file found: {question_file}")
+                questions = self.load_questions_from_file(question_file)
+                if questions:
+                    self.available_questions_label.config(text=f"Available Questions: {len(questions)}")
+                    self.log(f"Question file loaded successfully: {len(questions)} questions found")
+                else:
+                    self.available_questions_label.config(text="Available Questions: 0")
+                    self.log("Failed to load questions from file or file is empty")
+            else:
+                self.available_questions_label.config(text="Available Questions: 0")
+                self.log(f"Question file not found: {question_file}")
+        else:
+            self.available_questions_label.config(text="Available Questions: 0")
+        self.update_start_game_button()
+    
+    def load_questions_from_file(self, filename):
+        """
+        Load questions from a text file.
+        Format: Each question spans 5 lines:
+        - Line 1: Question text
+        - Line 2: Choice A (can be "A - [text]" or just "[text]")
+        - Line 3: Choice B (can be "B - [text]" or just "[text]")
+        - Line 4: Choice C (can be "C - [text]" or just "[text]")
+        - Line 5: Correct answer (can be "Answer: A" or just "A")
+        """
+        questions = []
+        try:
+            if not os.path.exists(filename):
+                self.log(f"Question file not found: {filename}")
+                return questions
+                
+            with open(filename, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            
+            # Remove empty lines and strip whitespace
+            lines = [line.strip() for line in lines if line.strip()]
+            
+            # Each question is 5 lines
+            if len(lines) % 5 != 0:
+                self.log(f"Warning: File has {len(lines)} lines, which is not a multiple of 5. Some questions may be incomplete.")
+            
+            for i in range(0, len(lines), 5):
+                if i + 4 < len(lines):
+                    # Parse question text
+                    question_text = lines[i]
+                    
+                    # Parse choice A (remove "A - " prefix if present)
+                    choice_a = lines[i + 1]
+                    if choice_a.startswith("A - "):
+                        choice_a = choice_a[4:].strip()
+                    elif choice_a.startswith("A:"):
+                        choice_a = choice_a[2:].strip()
+                    
+                    # Parse choice B (remove "B - " prefix if present)
+                    choice_b = lines[i + 2]
+                    if choice_b.startswith("B - "):
+                        choice_b = choice_b[4:].strip()
+                    elif choice_b.startswith("B:"):
+                        choice_b = choice_b[2:].strip()
+                    
+                    # Parse choice C (remove "C - " prefix if present)
+                    choice_c = lines[i + 3]
+                    if choice_c.startswith("C - "):
+                        choice_c = choice_c[4:].strip()
+                    elif choice_c.startswith("C:"):
+                        choice_c = choice_c[2:].strip()
+                    
+                    # Parse correct answer (remove "Answer: " prefix if present)
+                    correct_answer_line = lines[i + 4].upper().strip()
+                    correct_answer = None
+                    
+                    if correct_answer_line.startswith("ANSWER:"):
+                        correct_answer = correct_answer_line[7:].strip()
+                    elif correct_answer_line.startswith("ANSWER"):
+                        # Handle "ANSWER A" format
+                        parts = correct_answer_line.split()
+                        if len(parts) > 1:
+                            correct_answer = parts[1].strip()
+                    else:
+                        correct_answer = correct_answer_line.strip()
+                    
+                    # Extract just the letter (A, B, or C)
+                    if correct_answer:
+                        # Remove any extra characters, keep only A, B, or C
+                        correct_answer = correct_answer[0] if len(correct_answer) > 0 else None
+                    
+                    # Validate correct answer
+                    if correct_answer not in ['A', 'B', 'C']:
+                        self.log(f"Warning: Invalid correct answer '{lines[i + 4]}' (parsed as '{correct_answer}') for question {len(questions) + 1}. Skipping.")
+                        continue
+                    
+                    question = {
+                        'question': question_text,
+                        'A': choice_a,
+                        'B': choice_b,
+                        'C': choice_c,
+                        'correct': correct_answer
+                    }
+                    
+                    questions.append(question)
+                else:
+                    self.log(f"Warning: Incomplete question at line {i + 1}. Skipping.")
+            
+            return questions
+            
+        except FileNotFoundError:
+            self.log(f"Question file not found: {filename}")
+            return questions
+        except PermissionError:
+            self.log(f"Permission denied: Cannot read {filename}")
+            return questions
+        except Exception as e:
+            self.log(f"Error loading question file {filename}: {e}")
+            import traceback
+            self.log(f"Traceback: {traceback.format_exc()}")
+            return questions
         
     def log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -469,17 +527,26 @@ class QuizServer:
         """Update the start game button state - must be called from GUI thread"""
         def update():
             num_questions = self.num_questions_var.get().strip()
+            question_file = self.question_file_var.get().strip()
+            
+            # Check if question file exists and is valid
+            file_valid = False
+            if question_file:
+                questions = self.load_questions_from_file(question_file)
+                file_valid = len(questions) > 0
+            
             can_start = (
                 len(self.clients) >= 2 and
                 num_questions and
                 num_questions.isdigit() and
                 int(num_questions) > 0 and
+                file_valid and
                 not self.is_game_active and
                 self.is_listening
             )
             self.start_game_button.config(state=tk.NORMAL if can_start else tk.DISABLED)
             if can_start:
-                self.log(f"Start Game button enabled: {len(self.clients)} players, {num_questions} questions")
+                self.log(f"Start Game button enabled: {len(self.clients)} players, {num_questions} questions, file loaded")
         
         # Ensure we're on the GUI thread
         if threading.current_thread() == threading.main_thread():
@@ -489,14 +556,27 @@ class QuizServer:
         
     def start_game(self):
         try:
-            # Load embedded questions
-            self.questions = EMBEDDED_QUESTIONS.copy()
+            # Get question file path
+            question_file = self.question_file_var.get().strip()
+            if not question_file:
+                messagebox.showerror("Error", "Please select a question file")
+                return
+            
+            # Check if file exists
+            if not os.path.exists(question_file):
+                messagebox.showerror("Error", f"Question file not found: {question_file}")
+                self.log(f"Error: Question file not found: {question_file}")
+                return
+            
+            # Load questions from file
+            self.questions = self.load_questions_from_file(question_file)
             
             if not self.questions:
-                messagebox.showerror("Error", "No questions available")
+                messagebox.showerror("Error", "No questions available in the file or file could not be read")
+                self.log("Error: No questions loaded from file")
                 return
                     
-            self.log(f"Loaded {len(self.questions)} embedded questions")
+            self.log(f"Loaded {len(self.questions)} questions from file: {question_file}")
                 
             # Get number of questions
             try:
