@@ -5,7 +5,12 @@ from tkinter import ttk, messagebox
 from datetime import datetime
 import json
 import time
+import time
 import os
+import time
+import os
+import traceback
+import queue
 
 
 class QuizServer:
@@ -18,9 +23,14 @@ class QuizServer:
         self.server_socket = None
         self.is_listening = False
         self.is_game_active = False
-        self.clients = {}  # {client_socket: {'name': str, 'address': tuple, 'thread': threading.Thread}}
+        self.clients = {}  # {client_socket: {'name': str, 'address': tuple}}
         self.client_names = set()  # Track unique names
-        self.lock = threading.Lock()
+        
+        # message queue for thread safety
+        self.queue = queue.Queue()
+        
+        # Start queue processing
+        self.process_queue()
         
         # Game state
         self.questions = []
@@ -224,16 +234,15 @@ class QuizServer:
             return questions
         except Exception as e:
             self.log(f"Error loading question file {filename}: {e}")
-            import traceback
-            self.log(f"Traceback: {traceback.format_exc()}")
             return questions
         
     def log(self, message):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        log_message = f"[{timestamp}] {message}"
-        self.log_listbox.insert(tk.END, log_message)
-        self.log_listbox.see(tk.END)
-        print(log_message)  # Also print to console
+        def _log():
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            log_message = f"[{timestamp}] {message}"
+            self.log_listbox.insert(tk.END, log_message)
+            self.log_listbox.see(tk.END)
+        self.root.after(0, _log)
         
     def toggle_server(self):
         if not self.is_listening:
@@ -268,7 +277,7 @@ class QuizServer:
             self.port_var.set(str(port))
             self.log(f"Server started and listening on port {port}")
             self.log(f"Server IP Address: {local_ip}")
-            self.log(f"Clients can connect using IP: {local_ip} and Port: {port}")
+            self.log(f"Clients should connect to: {local_ip}:{port}")
             
             # Start accepting connections
             accept_thread = threading.Thread(target=self.accept_connections, daemon=True)
@@ -282,18 +291,14 @@ class QuizServer:
             
     def stop_server(self):
         self.is_listening = False
+        
+        # If game is active, end it first (this will close all client connections)
+        if self.is_game_active:
+            self.end_game("Server is stopping")
+        
+        # Close server socket
         if self.server_socket:
             try:
-                # Close all client connections
-                with self.lock:
-                    clients_to_close = list(self.clients.keys())
-                for client_socket in clients_to_close:
-                    try:
-                        self.send_message(client_socket, {"type": "server_shutdown"})
-                        client_socket.close()
-                    except:
-                        pass
-                        
                 self.server_socket.close()
             except:
                 pass
@@ -321,109 +326,169 @@ class QuizServer:
             except Exception as e:
                 self.log(f"Error accepting connection: {e}")
                 
-    def handle_client(self, client_socket, address):
+    def process_queue(self):
+        """Process events from the queue on the main thread"""
         try:
-            # Receive client name
-            data = client_socket.recv(1024).decode('utf-8')
-            if not data:
-                return
+            while True:
+                # Process all available messages
+                try:
+                    event = self.queue.get_nowait()
+                except queue.Empty:
+                    break
+                    
+                event_type = event[0]
                 
+                if event_type == "connect":
+                    client_socket, address, client_name = event[1], event[2], event[3]
+                    self._handle_connect_event(client_socket, address, client_name)
+                    
+                elif event_type == "disconnect":
+                    client_socket = event[1]
+                    self._handle_disconnect_event(client_socket)
+                    
+                elif event_type == "message":
+                    client_socket, message = event[1], event[2]
+                    self._handle_message_event(client_socket, message)
+                    
+        except Exception as e:
+            self.log(f"Error processing queue: {e}")
+            traceback.print_exc()
+            
+        # Schedule next check
+        self.root.after(50, self.process_queue)
+        
+    def _handle_connect_event(self, client_socket, address, client_name):
+        # Check if name is taken
+        if client_name in self.client_names:
+            self.send_message(client_socket, {
+                "type": "connection_error",
+                "message": f"Name '{client_name}' is already in use."
+            })
+            client_socket.close()
+            return
+            
+        # Accept connection
+        self.client_names.add(client_name)
+        self.clients[client_socket] = {
+            'name': client_name,
+            'address': address
+        }
+        self.scores[client_name] = 0
+        
+        self.send_message(client_socket, {
+            "type": "connection_accepted",
+            "message": f"Welcome {client_name}! Waiting for game to start."
+        })
+        
+        self.log(f"Client '{client_name}' connected from {address}")
+        self.update_clients_list()
+        
+        # Send current scoreboard
+        self.send_scoreboard()
+        
+        # Notify others
+        if len(self.clients) > 1:
+            self.broadcast_message({
+                "type": "player_connected",
+                "player_name": client_name,
+                "message": f"{client_name} has joined the game",
+                "total_players": len(self.clients)
+            }, exclude_socket=client_socket)
+            
+        self.update_start_game_button()
+
+    def _handle_disconnect_event(self, client_socket):
+        if client_socket in self.clients:
+            client_name = self.clients[client_socket]['name']
+            address = self.clients[client_socket]['address']
+            
+            # Clean up
+            self.client_names.discard(client_name)
+            del self.clients[client_socket]
+            
+            if client_name in self.scores:
+                del self.scores[client_name]
+                
+            self.log(f"Client '{client_name}' disconnected")
+            
+            self.update_clients_list()
+            self.update_start_game_button()
+            
+            # Notify others
+            self.broadcast_message({
+                "type": "player_disconnected",
+                "player_name": client_name,
+                "message": f"{client_name} has disconnected"
+            })
+            
             try:
+                client_socket.close()
+            except:
+                pass
+                
+    def _handle_message_event(self, client_socket, message):
+        self.handle_client_message(client_socket, message)
+
+    def handle_client(self, client_socket, address):
+        """Thread that strictly listens and puts events in queue"""
+        try:
+            # First message is always the connect message
+            try:
+                data = client_socket.recv(1024).decode('utf-8')
+                if not data:
+                    client_socket.close()
+                    return
                 message = json.loads(data)
-            except json.JSONDecodeError:
-                self.log(f"Invalid message format from {address}")
+            except:
                 client_socket.close()
                 return
                 
             if message.get("type") == "connect":
                 client_name = message.get("name", "").strip()
-                
                 if not client_name:
-                    self.send_message(client_socket, {
-                        "type": "connection_error",
-                        "message": "Name cannot be empty"
-                    })
                     client_socket.close()
-                    self.log(f"Connection rejected from {address}: Empty name")
                     return
                     
-                # Check if game is active
+                # We can't check game active or duplicate name here safely
+                # So we pass it to main thread
                 if self.is_game_active:
-                    self.send_message(client_socket, {
+                     self.send_message(client_socket, {
                         "type": "connection_error",
-                        "message": "Game is already in progress. Cannot accept new connections."
+                        "message": "Game is already in progress."
                     })
-                    client_socket.close()
-                    self.log(f"Connection rejected from {address}: Game in progress")
-                    return
-                    
-                # Check for duplicate name
-                with self.lock:
-                    if client_name in self.client_names:
-                        self.send_message(client_socket, {
-                            "type": "connection_error",
-                            "message": f"Name '{client_name}' is already in use. Please choose a different name."
-                        })
-                        client_socket.close()
-                        self.log(f"Connection rejected from {address}: Duplicate name '{client_name}'")
-                        return
-                        
-                    # Accept connection
-                    self.client_names.add(client_name)
-                    self.clients[client_socket] = {
-                        'name': client_name,
-                        'address': address,
-                        'thread': threading.current_thread()
-                    }
-                    self.scores[client_name] = 0
-                    
-                self.send_message(client_socket, {
-                    "type": "connection_accepted",
-                    "message": f"Welcome {client_name}! Waiting for game to start."
-                })
-                
-                self.log(f"Client '{client_name}' connected from {address}")
-                self.update_clients_list()
-                
-                # Send current scoreboard to new client first
-                self.send_scoreboard()
-                
-                # Notify other clients about the new connection (with delay to ensure they're ready)
-                if len(self.clients) > 1:  # Only if there are other clients
-                    player_name_copy = client_name
-                    total_players_copy = len(self.clients)
-                    self.root.after(200, lambda: self.broadcast_message({
-                        "type": "player_connected",
-                        "player_name": player_name_copy,
-                        "message": f"{player_name_copy} has joined the game",
-                        "total_players": total_players_copy
-                    }, exclude_socket=client_socket))
-                
-                # Update start game button (but don't auto-start)
-                self.update_start_game_button()
-                
-                # Keep connection alive and handle messages
-                while self.is_listening:
-                    try:
-                        data = client_socket.recv(1024).decode('utf-8')
-                        if not data:
-                            break
-                            
-                        message = json.loads(data)
-                        self.handle_client_message(client_socket, message)
-                        
-                    except json.JSONDecodeError:
-                        self.log(f"Invalid message from {self.clients.get(client_socket, {}).get('name', 'Unknown')}")
+                     client_socket.close()
+                     return
+
+                # Check duplicate name safely? No, do in main thread.
+                # Just put in queue
+                self.queue.put(("connect", client_socket, address, client_name))
+            else:
+                client_socket.close()
+                return
+
+            # Main listen loop
+            while True:
+                try:
+                    data = client_socket.recv(1024).decode('utf-8')
+                    if not data:
                         break
-                    except ConnectionResetError:
-                        break
-                        
+                    
+                    message = json.loads(data)
+                    self.queue.put(("message", client_socket, message))
+                    
+                except json.JSONDecodeError:
+                    continue
+                except ConnectionResetError:
+                    break
+                    
         except Exception as e:
-            self.log(f"Error handling client {address}: {e}")
+            pass # Just disconnect
         finally:
-            # Client disconnected
-            self.disconnect_client(client_socket)
+            self.queue.put(("disconnect", client_socket, None))
             
+
+
+                
     def handle_client_message(self, client_socket, message):
         msg_type = message.get("type")
         client_name = self.clients.get(client_socket, {}).get('name', 'Unknown')
@@ -436,92 +501,28 @@ class QuizServer:
             if answer not in ['A', 'B', 'C']:
                 return
                 
-            # Record answer with server timestamp
-            should_process = False
-            with self.lock:
-                if self.current_question_index not in self.answers_received:
-                    self.answers_received[self.current_question_index] = {}
-                    
-                if client_name not in self.answers_received[self.current_question_index]:
-                    self.answers_received[self.current_question_index][client_name] = {
-                        'answer': answer,
-                        'timestamp': time.time()  # Use server time for accuracy
-                    }
-                    self.log(f"Received answer '{answer}' from {client_name}")
-                    
-                    # Check if all players answered
-                    if len(self.answers_received[self.current_question_index]) == len(self.clients):
-                        should_process = True
-            
-            # Process outside the lock to avoid deadlock with broadcast_message
-            if should_process:
-                self.process_question_answers()
-                        
-    def disconnect_client(self, client_socket):
-        with self.lock:
-            if client_socket in self.clients:
-                client_name = self.clients[client_socket]['name']
-                address = self.clients[client_socket]['address']
+            # Record answer logic - NO LOCK NEEDED as we are on MAIN THREAD
+            if self.current_question_index not in self.answers_received:
+                self.answers_received[self.current_question_index] = {}
                 
-                self.client_names.discard(client_name)
-                del self.clients[client_socket]
+            if client_name not in self.answers_received[self.current_question_index]:
+                self.answers_received[self.current_question_index][client_name] = {
+                    'answer': answer,
+                    'timestamp': time.time()  # Use server time
+                }
+                self.log(f"Received answer '{answer}' from {client_name}")
                 
-                if client_name in self.scores:
-                    del self.scores[client_name]
-                    
-                self.log(f"Client '{client_name}' disconnected from {address}")
-                
-                try:
-                    client_socket.close()
-                except:
-                    pass
-                    
-                # Notify other clients
-                if self.is_game_active:
-                    self.broadcast_message({
-                        "type": "player_disconnected",
-                        "player_name": client_name,
-                        "message": f"{client_name} has disconnected"
-                    })
-                    
-                    # Check if game should end OR if we should process the current question
-                    if len(self.clients) < 2:
-                        # If only 1 player left, we might need to finish the current question first
-                        # But the spec says: "When a client disconnects during the answering phase and a single player remains after this disconnection, the latest question must be answered before ending the game."
-                        
-                        # So, if we are waiting for answers, check if the remaining player has answered
-                        remaining_client_name = list(self.client_names)[0] if self.client_names else None
-                        
-                        if remaining_client_name:
-                             # Check if the remaining player has already answered the current question
-                            current_answers = self.answers_received.get(self.current_question_index, {})
-                            if remaining_client_name in current_answers:
-                                # Remaining player has answered, so we can process the question now
-                                self.log(f"Only one player left ({remaining_client_name}) and they have answered. Processing question...")
-                                self.process_question_answers()
-                                # The game will be ended in send_next_question or we can force it here after a delay?
-                                # Actually process_question_answers calls send_next_question which checks player count.
-                                # But we need to make sure we don't end immediately if we are just waiting for the result display.
-                                return 
+                # Check if all players answered
+                if len(self.answers_received[self.current_question_index]) == len(self.clients):
+                    self.process_question_answers()
 
-                        self.end_game("Less than 2 players remaining")
-                    else:
-                        # Game continues, but check if everyone remaining has answered
-                        current_answers = self.answers_received.get(self.current_question_index, {})
-                        if len(current_answers) == len(self.clients):
-                            self.process_question_answers()
-
-                else:
-                    self.send_scoreboard()
-                    
-                self.update_clients_list()
-                self.update_start_game_button()
-                
     def update_clients_list(self):
-        self.clients_listbox.delete(0, tk.END)
-        with self.lock:
+        def _update():
+            self.clients_listbox.delete(0, tk.END)
+            # No lock needed - running on main thread
             for client_info in self.clients.values():
                 self.clients_listbox.insert(tk.END, client_info['name'])
+        self.root.after(0, _update)
                 
     def update_start_game_button(self):
         """Update the start game button state - must be called from GUI thread"""
@@ -605,20 +606,24 @@ class QuizServer:
             # Send initial scoreboard
             self.send_scoreboard()
             
-            # Send first question with a small delay to ensure all clients are ready
-            self.root.after(300, self.send_next_question)
+            # Start game monitoring loop
+            self.monitor_game_state()
+            
+            # Send first question
+            self.send_next_question()
             
         except Exception as e:
             self.log(f"Error starting game: {e}")
             messagebox.showerror("Error", f"Failed to start game: {e}")
             
     def send_next_question(self):
-        if self.current_question_index >= self.num_questions:
-            self.end_game("All questions answered")
-            return
-            
+        # Check player count first
         if len(self.clients) < 2:
             self.end_game("Less than 2 players remaining")
+            return
+            
+        if self.current_question_index >= self.num_questions:
+            self.end_game("All questions answered")
             return
             
         # Get question (reuse if needed)
@@ -640,13 +645,18 @@ class QuizServer:
             "C": question['C']
         }
         self.log(f"Broadcasting question {self.current_question_index + 1} to {len(self.clients)} clients...")
-        with self.lock:
-            client_count = len(self.clients)
+        self.log(f"Broadcasting question {self.current_question_index + 1} to {len(self.clients)} clients...")
+        client_count = len(self.clients)
         self.broadcast_message(question_message)
         self.log(f"Question broadcast completed to {client_count} clients")
         
     def process_question_answers(self):
         if self.current_question_index not in self.answers_received:
+            return
+        
+        # Check if we have enough players before processing
+        if len(self.clients) < 2:
+            self.end_game("Less than 2 players remaining")
             return
             
         question = self.questions[self.current_question_index % len(self.questions)]
@@ -713,13 +723,15 @@ class QuizServer:
         # Send updated scoreboard to all
         self.send_scoreboard()
         
+        # Check player count before moving to next question
+        if len(self.clients) < 2:
+            self.end_game("Less than 2 players remaining")
+            return
+        
         # Move to next question
         self.current_question_index += 1
         
-        # Wait a bit before sending next question
-        import time
-        time.sleep(2)
-        
+        # Send next question
         self.send_next_question()
         
     def send_scoreboard(self):
@@ -731,13 +743,44 @@ class QuizServer:
             "type": "scoreboard",
             "scoreboard": scoreboard
         })
+
+    def monitor_game_state(self):
+        """Monitor game state every 1 second"""
+        if not self.is_game_active:
+            return
+
+        # Check for insufficient players
+        # Check for insufficient players
+        # No lock needed - running on main thread via queue or root.after
+        player_count = len(self.clients)
+        
+        if player_count < 2:
+            self.log("Monitor detected fewer than 2 players. Ending game...")
+            # Use root.after to ensure end_game runs on main thread (though end_game itself is thread-safe now)
+            # But technically monitor_game_state IS running on main thread via root.after below
+            self.end_game("Less than 2 players remaining")
+            return
+
+        # Schedule next check
+        self.root.after(1000, self.monitor_game_state)
         
     def end_game(self, reason):
+        # Set game as inactive FIRST so new connections can be accepted AND to prevent multiple threads
         self.is_game_active = False
-        self.log(f"Game ended: {reason}")
         
-        # Calculate rankings
-        sorted_scores = sorted(self.scores.items(), key=lambda x: (-x[1], x[0]))
+        # Start end_game in a separate thread to avoid freezing GUI with sleep
+        threading.Thread(target=self._end_game_worker, args=(reason,), daemon=True).start()
+
+    def _end_game_worker(self, reason):
+        self.log(f"Game ended: {reason}")
+        self.log(f"is_game_active set to False - new connections can now be accepted")
+        
+        # Capture state safely (no lock needed, main thread)
+        scores_copy = self.scores.copy()
+        clients_snapshot = list(self.clients.items()) # List of (socket, info_dict)
+        
+        # Calculate rankings using local copy
+        sorted_scores = sorted(scores_copy.items(), key=lambda x: (-x[1], x[0]))
         rankings = []
         current_rank = 1
         
@@ -745,7 +788,7 @@ class QuizServer:
             if i > 0 and sorted_scores[i-1][1] != score:
                 current_rank = i + 1
             rankings.append({"rank": current_rank, "name": name, "score": score})
-            
+        
         # Find winners
         winners = [r for r in rankings if r['rank'] == 1]
         winner_names = [w['name'] for w in winners]
@@ -753,36 +796,60 @@ class QuizServer:
         self.log(f"Final rankings:")
         for ranking in rankings:
             self.log(f"  {ranking['rank']}. {ranking['name']}: {ranking['score']} points")
-            
-        # Send final results
-        self.broadcast_message({
-            "type": "game_end",
-            "reason": reason,
-            "final_scoreboard": rankings,
-            "winners": winner_names
-        })
         
-        # Wait a bit for messages to be sent, then close connections
-        time.sleep(1)
+        # Broadcast to remaining clients
+        remaining_names = [info['name'] for sock, info in clients_snapshot]
+        self.log(f"Sending game_end message to {len(clients_snapshot)} remaining clients: {remaining_names}")
+        
+        if len(clients_snapshot) == 0:
+            self.log("No clients remaining, skipping game_end message")
+        else:
+            message = {
+                "type": "game_end",
+                "reason": reason,
+                "final_scoreboard": rankings,
+                "winners": winner_names
+            }
+            
+            for client_socket, info in clients_snapshot:
+                try:
+                    self.send_message(client_socket, message)
+                    self.log(f"Sent game_end message to {info['name']}")
+                except Exception as e:
+                    self.log(f"Error sending game_end to {info['name']}: {e}")
+            
+            self.log(f"game_end message sent phase completed")
+            
+            # Wait a bit for messages to be sent before closing connections
+            time.sleep(1.0)
         
         # Close all client connections
-        with self.lock:
-            clients_to_close = list(self.clients.keys())
-        for client_socket in clients_to_close:
+        for client_socket, _ in clients_snapshot:
             try:
                 client_socket.close()
             except:
                 pass
                 
         # Clear client data
-        with self.lock:
-            self.clients.clear()
-            self.client_names.clear()
-            self.scores.clear()
+        # Clear client data
+        self.clients.clear()
+        self.client_names.clear()
+        self.scores.clear()
+        
+        # Reset game state but keep server listening (if server is still listening)
+        # Reset game state
+        self.current_question_index = 0
+        self.answers_received = {}
+        # Keep scores empty as they were cleared above
+
             
         self.update_clients_list()
         self.update_start_game_button()
-        self.log("All connections closed. Server ready for new connections.")
+        
+        if self.is_listening:
+            self.log("Game ended. All connections closed. Server is still listening and ready for new connections.")
+        else:
+            self.log("Game ended. All connections closed.")
         
     def send_message(self, client_socket, message):
         try:
@@ -790,40 +857,36 @@ class QuizServer:
             # Send message with newline separator
             full_message = data + b'\n'
             client_socket.sendall(full_message)
-            
-            # Debug log for all messages
-            msg_type = message.get("type", "unknown")
-            client_name = self.clients.get(client_socket, {}).get('name', 'Unknown')
-            
-            if msg_type == "connection_accepted":
-                self.log(f"Sent {msg_type} to {client_name}")
-            elif msg_type == "question":
-                self.log(f"Sent question to {client_name}: {message.get('question', '')[:50]}...")
-            elif msg_type in ["scoreboard", "answer_result", "game_end", "player_connected"]:
-                self.log(f"Sent {msg_type} to {client_name}")
         except Exception as e:
             self.log(f"Error sending message: {e}")
-            # Try to get client name for better error reporting
-            try:
-                client_name = self.clients.get(client_socket, {}).get('name', 'Unknown')
-                self.log(f"Failed to send message to {client_name}: {e}")
-            except:
-                pass
             
     def broadcast_message(self, message, exclude_socket=None):
         """Broadcast message to all clients, optionally excluding one"""
-        with self.lock:
-            clients_to_remove = []
-            for client_socket in self.clients.keys():
-                if client_socket == exclude_socket:
-                    continue  # Skip excluded client
-                try:
-                    self.send_message(client_socket, message)
-                except:
-                    clients_to_remove.append(client_socket)
-                    
-            for client_socket in clients_to_remove:
-                self.disconnect_client(client_socket)
+
+        # No lock needed - running on main thread via queue
+        clients_to_remove = []
+        msg_type = message.get("type", "unknown")
+        for client_socket in self.clients.keys():
+            if client_socket == exclude_socket:
+                continue  # Skip excluded client
+            try:
+                client_name = self.clients[client_socket]['name']
+                self.send_message(client_socket, message)
+                if msg_type == "game_end":
+                    self.log(f"Sent game_end message to {client_name}")
+            except Exception as e:
+                self.log(f"Error sending {msg_type} to {self.clients.get(client_socket, {}).get('name', 'Unknown')}: {e}")
+                clients_to_remove.append(client_socket)
+                
+        for client_socket in clients_to_remove:
+            try:
+                client_socket.close()
+            except:
+                pass
+            
+            if client_socket in self.clients:
+                del self.clients[client_socket]
+            self.log(f"Removed unresponsive client during broadcast")
                 
     def on_closing(self):
         if self.is_listening:

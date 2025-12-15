@@ -4,7 +4,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 import json
-import time
 
 class QuizClient:
     def __init__(self, root):
@@ -102,11 +101,8 @@ class QuizClient:
         self.choice_c_label = tk.Label(frame_c, text="", wraplength=200, justify=tk.LEFT, font=("Arial", 9))
         self.choice_c_label.pack(side=tk.TOP, anchor=tk.W, padx=20)
         
-        # Submit button - placed in main frame to ensure visibility at bottom
-        self.submit_button = tk.Button(main_frame, text="Submit Answer", command=self.submit_answer, 
-                                       state="disabled", font=("Arial", 12, "bold"), bg="#4CAF50", fg="white",
-                                       activebackground="#45a049", disabledforeground="gray",
-                                       relief=tk.RAISED, bd=3, cursor="hand2", height=1)
+        # Submit button
+        self.submit_button = ttk.Button(main_frame, text="Submit Answer", command=self.submit_answer, state="disabled")
         self.submit_button.grid(row=4, column=0, columnspan=2, pady=5, padx=20, sticky=(tk.W, tk.E, tk.S))
         main_frame.rowconfigure(4, weight=0) # Don't expand this row
         
@@ -135,11 +131,12 @@ class QuizClient:
         self.log("Client initialized. Enter server details and connect.")
         
     def log(self, message):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        log_message = f"[{timestamp}] {message}"
-        self.log_listbox.insert(tk.END, log_message)
-        self.log_listbox.see(tk.END)
-        print(log_message)  # Also print to console
+        def _log():
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            log_message = f"[{timestamp}] {message}"
+            self.log_listbox.insert(tk.END, log_message)
+            self.log_listbox.see(tk.END)
+        self.root.after(0, _log)
         
     def toggle_connection(self):
         if not self.is_connected:
@@ -198,16 +195,7 @@ class QuizClient:
             # Note: Connection will be confirmed when we receive connection_accepted message
                     
         except socket.timeout:
-            error_msg = (
-                f"Connection timeout after 10 seconds.\n\n"
-                f"Troubleshooting:\n"
-                f"1. Verify server IP: {server_ip}\n"
-                f"2. Verify server is running on port {port}\n"
-                f"3. Check if both computers are on the same network\n"
-                f"4. Test connection: ping {server_ip}\n"
-                f"5. Check Windows Firewall settings on server"
-            )
-            messagebox.showerror("Connection Timeout", error_msg)
+            messagebox.showerror("Connection Timeout", f"Connection timeout to {server_ip}:{port}")
             self.log(f"Connection timeout to {server_ip}:{port}")
             if self.client_socket:
                 try:
@@ -216,15 +204,7 @@ class QuizClient:
                     pass
                 self.client_socket = None
         except ConnectionRefusedError:
-            error_msg = (
-                f"Connection refused by {server_ip}:{port}\n\n"
-                f"Possible causes:\n"
-                f"1. Server is not running\n"
-                f"2. Wrong port number\n"
-                f"3. Firewall is blocking the connection\n"
-                f"4. Server is not listening on this IP address"
-            )
-            messagebox.showerror("Connection Refused", error_msg)
+            messagebox.showerror("Connection Refused", f"Connection refused by {server_ip}:{port}")
             self.log(f"Connection refused from {server_ip}:{port}")
             if self.client_socket:
                 try:
@@ -232,36 +212,8 @@ class QuizClient:
                 except:
                     pass
                 self.client_socket = None
-        except OSError as e:
-            error_code = getattr(e, 'winerror', getattr(e, 'errno', None))
-            if error_code == 10051:  # Network is unreachable
-                error_msg = (
-                    f"Network unreachable: {server_ip}\n\n"
-                    f"Possible causes:\n"
-                    f"1. Wrong IP address\n"
-                    f"2. Different network (not on same Wi-Fi)\n"
-                    f"3. Network interface is down"
-                )
-            elif error_code == 10060:  # Connection timed out (Windows)
-                error_msg = (
-                    f"Connection timed out to {server_ip}:{port}\n\n"
-                    f"Check:\n"
-                    f"1. Server is running\n"
-                    f"2. Firewall allows port {port}\n"
-                    f"3. Both computers on same network"
-                )
-            else:
-                error_msg = f"Connection error: {e}\n\nError code: {error_code}"
-            messagebox.showerror("Connection Error", error_msg)
-            self.log(f"Connection error to {server_ip}:{port} - {e} (code: {error_code})")
-            if self.client_socket:
-                try:
-                    self.client_socket.close()
-                except:
-                    pass
-                self.client_socket = None
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to connect: {e}\n\nServer IP: {server_ip}\nPort: {port}")
+            messagebox.showerror("Error", f"Failed to connect: {e}")
             self.log(f"Connection error: {e}")
             if self.client_socket:
                 try:
@@ -341,8 +293,7 @@ class QuizClient:
         
         if msg_type == "connection_accepted":
             msg = message.get("message", "Connected successfully")
-            self.root.after(0, lambda: self.log(f"✓ {msg}"))
-            # Connection confirmed, can disable inputs if needed (optional)
+            self.root.after(0, lambda: self.log(msg))
             
         elif msg_type == "connection_error":
             error_msg = message.get("message", "Connection error")
@@ -419,8 +370,7 @@ class QuizClient:
             self.radio_a.config(state=tk.NORMAL)
             self.radio_b.config(state=tk.NORMAL)
             self.radio_c.config(state=tk.NORMAL)
-            self.radio_c.config(state=tk.NORMAL)
-            self.submit_button.config(state="normal", text="Submit Answer", bg="#4CAF50")
+            self.submit_button.config(state="normal", text="Submit Answer")
             self.answer_var.set("")
             
             self.log(f"Question {question_data['question_number']}: {question_data['question']}")
@@ -439,15 +389,14 @@ class QuizClient:
         # Disable UI immediately to prevent double submission
         self.disable_answer_ui()
         
-        # Send answer with timestamp
+        # Send answer
         self.send_message({
             "type": "answer",
-            "answer": answer,
-            "timestamp": time.time()
+            "answer": answer
         })
         
         self.log(f"Answer submitted: {answer}. Waiting for other players...")
-        self.submit_button.config(text="Waiting for other players...", bg="#808080")
+        self.submit_button.config(text="Waiting for other players...", state=tk.DISABLED)
         
     def disable_answer_ui(self):
         self.radio_a.config(state=tk.DISABLED)
@@ -456,30 +405,9 @@ class QuizClient:
         self.submit_button.config(state=tk.DISABLED)
     
     def show_answer_result(self, your_answer, correct_answer, result_msg, your_score):
-        """Show the answer result and highlight correct/incorrect answers"""
-        # Disable answer UI first
+        """Show the answer result"""
+        # Disable answer UI
         self.disable_answer_ui()
-        
-        # Reset all colors first
-        self.choice_a_label.config(fg="black")
-        self.choice_b_label.config(fg="black")
-        self.choice_c_label.config(fg="black")
-        
-        # Highlight the selected answer
-        if your_answer == "A":
-            self.choice_a_label.config(fg="red" if your_answer != correct_answer else "green")
-        elif your_answer == "B":
-            self.choice_b_label.config(fg="red" if your_answer != correct_answer else "green")
-        elif your_answer == "C":
-            self.choice_c_label.config(fg="red" if your_answer != correct_answer else "green")
-        
-        # Highlight correct answer in green (if different from selected)
-        if correct_answer == "A" and your_answer != "A":
-            self.choice_a_label.config(fg="green")
-        elif correct_answer == "B" and your_answer != "B":
-            self.choice_b_label.config(fg="green")
-        elif correct_answer == "C" and your_answer != "C":
-            self.choice_c_label.config(fg="green")
         
         # Show result message
         self.log(f"Your answer: {your_answer}, Correct answer: {correct_answer}")
@@ -537,6 +465,9 @@ class QuizClient:
         self.log("Final scoreboard displayed")
         
         self.reset_question_ui()
+        
+        # Disconnect from server after game ends
+        self.disconnect()
         
     def handle_disconnection(self):
         self.is_connected = False
