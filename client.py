@@ -6,6 +6,14 @@ from datetime import datetime
 import json
 
 class QuizClient:
+    """
+    Client Application for the Quiz Game.
+    
+    Architecture:
+    - Main Thread: Runs the Tkinter GUI Loop. Handles button clicks and updates UI.
+    - Receive Thread: Background thread that listens for incoming messages from the server.
+      It uses `root.after()` to safely pass data to the Main Thread for UI updates.
+    """
     def __init__(self, root):
         self.root = root
         self.root.title("Quiz Client")
@@ -26,6 +34,10 @@ class QuizClient:
         self.setup_gui()
         
     def setup_gui(self):
+        """
+        Initializes the Tkinter GUI components.
+        Sets up the layout for connection details, question display, answers, and scoreboard.
+        """
         # Main frame
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -131,6 +143,10 @@ class QuizClient:
         self.log("Client initialized. Enter server details and connect.")
         
     def log(self, message):
+        """
+        Thread-safe logging method.
+        Updates the log listbox on the main thread using root.after().
+        """
         def _log():
             timestamp = datetime.now().strftime("%H:%M:%S")
             log_message = f"[{timestamp}] {message}"
@@ -139,12 +155,20 @@ class QuizClient:
         self.root.after(0, _log)
         
     def toggle_connection(self):
+        """
+        Toggles the client connection state.
+        Connects if disconnected, disconnects if connected.
+        """
         if not self.is_connected:
             self.connect()
         else:
             self.disconnect()
             
     def connect(self):
+        """
+        Initiates a TCP connection to the server.
+        Validates inputs (IP, Port, Name) and starts the background receive thread.
+        """
         try:
             server_ip = self.ip_var.get().strip()
             if not server_ip:
@@ -166,6 +190,7 @@ class QuizClient:
                 return
                 
             # Create socket and connect
+            # We use a TCP socket (SOCK_STREAM)
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.client_socket.settimeout(10)  # Increased timeout for network connections
             self.log(f"Attempting to connect to {server_ip}:{port}...")
@@ -188,6 +213,8 @@ class QuizClient:
             self.name_var.set(client_name)
             
             # Start receiving thread AFTER setting is_connected
+            # We need a separate thread to listen for server messages
+            # so the GUI doesn't freeze while waiting for network data.
             self.receive_thread = threading.Thread(target=self.receive_messages, daemon=True)
             self.receive_thread.start()
             
@@ -223,6 +250,10 @@ class QuizClient:
                 self.client_socket = None
                 
     def disconnect(self):
+        """
+        Closes the active connection and resets the client state.
+        Updates UI to showing disconnected state.
+        """
         self.is_connected = False
         self.is_in_game = False
         
@@ -242,6 +273,9 @@ class QuizClient:
         self.scoreboard_listbox.delete(0, tk.END)
         
     def send_message(self, message):
+        """
+        Encodes and sends a JSON message to the server.
+        """
         if self.client_socket:
             try:
                 data = json.dumps(message).encode('utf-8')
@@ -251,6 +285,10 @@ class QuizClient:
                 self.disconnect()
                 
     def receive_messages(self):
+        """
+        Background thread to listen for server messages.
+        This loops blocks on recv() until data arrives.
+        """
         buffer = b""  # Buffer for incomplete messages (bytes)
         while self.is_connected:
             try:
@@ -289,6 +327,11 @@ class QuizClient:
             self.root.after(0, self.handle_disconnection)
             
     def handle_message(self, message):
+        """
+        Dispatches messages to the appropriate handler.
+        CRITICAL: Uses root.after() to ensure UI updates happen on the Main Thread.
+        Tkinter is NOT thread-safe, so we cannot update labels directly from this background thread.
+        """
         msg_type = message.get("type")
         
         if msg_type == "connection_accepted":
@@ -350,6 +393,10 @@ class QuizClient:
             self.root.after(0, self.disconnect)
             
     def display_question(self, question_data):
+        """
+        Updates the UI to display the current question and answer choices.
+        Enables the answer selection radio buttons.
+        """
         try:
             self.is_in_game = True
             self.current_question = question_data
@@ -378,6 +425,10 @@ class QuizClient:
             self.log(f"Error displaying question: {e}")
         
     def submit_answer(self):
+        """
+        Called when Submit button is clicked (Main Thread).
+        Sends the selected answer to the server.
+        """
         if not self.is_in_game or not self.current_question:
             return
             
@@ -399,6 +450,9 @@ class QuizClient:
         self.submit_button.config(text="Waiting for other players...", state=tk.DISABLED)
         
     def disable_answer_ui(self):
+        """
+        Disables answer inputs to prevent multiple submissions or answering after time.
+        """
         self.radio_a.config(state=tk.DISABLED)
         self.radio_b.config(state=tk.DISABLED)
         self.radio_c.config(state=tk.DISABLED)
@@ -414,6 +468,7 @@ class QuizClient:
         self.log(f"Your current score: {your_score} points")
         
     def reset_question_ui(self):
+        """Resets the question area to the default 'waiting' state."""
         self.question_label.config(text="Waiting for question...")
         self.choice_a_label.config(text="")
         self.choice_b_label.config(text="")
@@ -422,6 +477,10 @@ class QuizClient:
         self.disable_answer_ui()
         
     def update_scoreboard(self, scoreboard):
+        """
+        Updates the scoreboard listbox with the latest scores from the server.
+        Highlights the current user's score.
+        """
         self.scoreboard = scoreboard
         self.scoreboard_listbox.delete(0, tk.END)
         
@@ -435,6 +494,10 @@ class QuizClient:
                 self.scoreboard_listbox.insert(tk.END, f"{name}: {score} points")
                 
     def handle_game_end(self, reason, final_scoreboard, winners):
+        """
+        Handles the end-of-game event.
+        Displays the final rankings and a winner/game-over messagebox.
+        """
         self.is_in_game = False
         self.log(f"Game ended: {reason}")
         
@@ -470,6 +533,10 @@ class QuizClient:
         self.disconnect()
         
     def handle_disconnection(self):
+        """
+        Handles unexpected disconnection events (called from background thread via logic).
+        Updates UI to reflect disconnected state.
+        """
         self.is_connected = False
         self.is_in_game = False
         self.connect_button.config(text="Connect")
@@ -478,6 +545,10 @@ class QuizClient:
         self.reset_question_ui()
         
     def on_closing(self):
+        """
+        Cleanup method called when the window is closed.
+        Ensures the connection is closed properly before exiting.
+        """
         if self.is_connected:
             self.disconnect()
         self.root.destroy()

@@ -14,6 +14,17 @@ import queue
 
 
 class QuizServer:
+    """
+    Main Server Class for the Quiz Game.
+    
+    Architecture:
+    - Main Thread: Handles all GUI (Tkinter) updates and Game Logic (scoring, state).
+    - Accept Thread: Background thread that waits for new client connections.
+    - Client Threads: One background thread per client to listen for incoming messages.
+    - Queue System: A thread-safe queue connects Client Threads -> Main Thread. 
+      Background threads put events in the queue, and the Main Thread processes them.
+      This prevents "Freezing" and race conditions.
+    """
     def __init__(self, root):
         self.root = root
         self.root.title("Quiz Server")
@@ -27,9 +38,13 @@ class QuizServer:
         self.client_names = set()  # Track unique names
         
         # message queue for thread safety
+        # This is CRITICAL for the architecture.
+        # Tkinter (GUI) is not thread-safe. We cannot update the UI from background threads.
+        # Instead, background threads put data into this queue, and the main thread reads it.
         self.queue = queue.Queue()
         
         # Start queue processing
+        # This initiates the periodic check of the queue on the main thread.
         self.process_queue()
         
         # Game state
@@ -42,6 +57,10 @@ class QuizServer:
         self.setup_gui()
         
     def setup_gui(self):
+        """
+        Initializes the Tkinter GUI components.
+        Sets up the layout for configuration, game controls, client list, and logs.
+        """
         # Main frame
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -237,6 +256,10 @@ class QuizServer:
             return questions
         
     def log(self, message):
+        """
+        Thread-safe logging method.
+        Updates the log listbox on the main thread using root.after().
+        """
         def _log():
             timestamp = datetime.now().strftime("%H:%M:%S")
             log_message = f"[{timestamp}] {message}"
@@ -245,12 +268,20 @@ class QuizServer:
         self.root.after(0, _log)
         
     def toggle_server(self):
+        """
+        Toggles the server state between running (listening) and stopped.
+        Triggered by the Start/Stop Server button.
+        """
         if not self.is_listening:
             self.start_server()
         else:
             self.stop_server()
             
     def start_server(self):
+        """
+        Starts the server socket to listen for connections.
+        Validates the port and binds the socket.
+        """
         try:
             port = int(self.port_var.get())
             if port < 1 or port > 65535:
@@ -280,6 +311,8 @@ class QuizServer:
             self.log(f"Clients should connect to: {local_ip}:{port}")
             
             # Start accepting connections
+            # We run this in a SEPARATE thread (daemon=True) so the GUI doesn't freeze
+            # while waiting for a client to connect.
             accept_thread = threading.Thread(target=self.accept_connections, daemon=True)
             accept_thread.start()
             
@@ -290,6 +323,10 @@ class QuizServer:
             self.log(f"Error starting server: {e}")
             
     def stop_server(self):
+        """
+        Stops the server, closes the socket, and disconnects all clients.
+        If a game is active, it force-ends the game first.
+        """
         self.is_listening = False
         
         # If game is active, end it first (this will close all client connections)
@@ -307,6 +344,10 @@ class QuizServer:
         self.log("Server stopped")
         
     def accept_connections(self):
+        """
+        Background loop to accept new incoming TCP connections.
+        When a client connects, it spawns a new 'handle_client' thread for them.
+        """
         while self.is_listening:
             try:
                 if self.server_socket:
@@ -314,6 +355,8 @@ class QuizServer:
                     self.log(f"New connection attempt from {address}")
                     
                     # Handle client in a separate thread
+                    # For EVERY client, we start a new dedicated thread.
+                    # This allows the server to listen to multiple clients simultaneously.
                     client_thread = threading.Thread(
                         target=self.handle_client,
                         args=(client_socket, address),
@@ -327,7 +370,10 @@ class QuizServer:
                 self.log(f"Error accepting connection: {e}")
                 
     def process_queue(self):
-        """Process events from the queue on the main thread"""
+        """
+        Process events from the queue on the MAIN THREAD.
+        This is the bridge between background threads and the GUI/Game Logic.
+        """
         try:
             while True:
                 # Process all available messages
@@ -358,6 +404,11 @@ class QuizServer:
         self.root.after(50, self.process_queue)
         
     def _handle_connect_event(self, client_socket, address, client_name):
+        """
+        Handles a 'connect' event from the queue.
+        Executed on the Main Thread.
+        Validates the username and adds the client to the active list.
+        """
         # Check if name is taken
         if client_name in self.client_names:
             self.send_message(client_socket, {
@@ -398,6 +449,11 @@ class QuizServer:
         self.update_start_game_button()
 
     def _handle_disconnect_event(self, client_socket):
+        """
+        Handles a 'disconnect' event from the queue.
+        Executed on the Main Thread.
+        Removes the client from lists and notifies other players.
+        """
         if client_socket in self.clients:
             client_name = self.clients[client_socket]['name']
             address = self.clients[client_socket]['address']
@@ -427,10 +483,21 @@ class QuizServer:
                 pass
                 
     def _handle_message_event(self, client_socket, message):
+        """
+        Handles a 'message' event from the queue.
+        Executed on the Main Thread.
+        """
         self.handle_client_message(client_socket, message)
 
     def handle_client(self, client_socket, address):
-        """Thread that strictly listens and puts events in queue"""
+        """
+        Thread that strictly listens and puts events in queue.
+        
+        IMPORTANT: This run in a background thread.
+        It does NOT update the GUI directly.
+        It does NOT modify game state directly.
+        It only puts messages into self.queue for the Main Thread to handle.
+        """
         try:
             # First message is always the connect message
             try:
@@ -490,6 +557,10 @@ class QuizServer:
 
                 
     def handle_client_message(self, client_socket, message):
+        """
+        Processes a specific message type (e.g., 'answer') from a client.
+        Executed on the Main Thread.
+        """
         msg_type = message.get("type")
         client_name = self.clients.get(client_socket, {}).get('name', 'Unknown')
         
@@ -502,6 +573,8 @@ class QuizServer:
                 return
                 
             # Record answer logic - NO LOCK NEEDED as we are on MAIN THREAD
+            # Since process_queue calls this, we are strictly sequential here.
+            # No race conditions between clients answering at the same time.
             if self.current_question_index not in self.answers_received:
                 self.answers_received[self.current_question_index] = {}
                 
@@ -517,6 +590,7 @@ class QuizServer:
                     self.process_question_answers()
 
     def update_clients_list(self):
+        """Updates the listbox showing connected clients."""
         def _update():
             self.clients_listbox.delete(0, tk.END)
             # No lock needed - running on main thread
@@ -556,6 +630,10 @@ class QuizServer:
             self.root.after(0, update)
         
     def start_game(self):
+        """
+        Starts the quiz game.
+        Loads questions, validates requirements (2+ players), and broadcasts the first question.
+        """
         try:
             # Get question file path
             question_file = self.question_file_var.get().strip()
@@ -617,6 +695,10 @@ class QuizServer:
             messagebox.showerror("Error", f"Failed to start game: {e}")
             
     def send_next_question(self):
+        """
+        Retrieves the next question and broadcasts it to all clients.
+        If no questions remain, ends the game.
+        """
         # Check player count first
         if len(self.clients) < 2:
             self.end_game("Less than 2 players remaining")
@@ -627,6 +709,7 @@ class QuizServer:
             return
             
         # Get question (reuse if needed)
+        # Verify index is within bounds to prevent crashes, using modulo for endless loops if intended
         question = self.questions[self.current_question_index % len(self.questions)]
         
         self.log(f"Question {self.current_question_index + 1}/{self.num_questions}: {question['question']}")
@@ -651,6 +734,11 @@ class QuizServer:
         self.log(f"Question broadcast completed to {client_count} clients")
         
     def process_question_answers(self):
+        """
+        Evaluates answers for the current question.
+        Calculates scores (including speed bonuses) and sends results to clients.
+        Triggers the next question after processing.
+        """
         if self.current_question_index not in self.answers_received:
             return
         
@@ -735,6 +823,7 @@ class QuizServer:
         self.send_next_question()
         
     def send_scoreboard(self):
+        """Broadcasts the current scoreboard to all connected clients."""
         scoreboard = []
         for name, score in sorted(self.scores.items(), key=lambda x: (-x[1], x[0])):
             scoreboard.append({"name": name, "score": score})
@@ -745,6 +834,10 @@ class QuizServer:
         })
 
     def monitor_game_state(self):
+        """
+        Periodic task to check game health (e.g., minimum player count).
+        Runs every 1 second via root.after().
+        """
         """Monitor game state every 1 second"""
         if not self.is_game_active:
             return
@@ -772,6 +865,10 @@ class QuizServer:
         threading.Thread(target=self._end_game_worker, args=(reason,), daemon=True).start()
 
     def _end_game_worker(self, reason):
+        """
+        Background worker to handle game end logic (calculating final ranks).
+        Started in a thread to avoid blocking if we wanted to add delays/animations later.
+        """
         self.log(f"Game ended: {reason}")
         self.log(f"is_game_active set to False - new connections can now be accepted")
         
