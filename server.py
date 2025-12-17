@@ -88,14 +88,14 @@ class QuizServer:
         # Question file input
         ttk.Label(game_frame, text="Question File:").grid(row=0, column=0, sticky=tk.W, padx=5)
         self.question_file_var = tk.StringVar()
-        self.question_file_var.trace('w', lambda *args: self.on_question_file_changed())
+        self.question_file_var.trace_add('write', lambda *args: self.on_question_file_changed())
         question_file_entry = ttk.Entry(game_frame, textvariable=self.question_file_var, width=30)
         question_file_entry.grid(row=0, column=1, sticky=tk.W, padx=5)
         
         # Number of questions
         ttk.Label(game_frame, text="Number of Questions:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         self.num_questions_var = tk.StringVar(value="5")  # Default to 5 questions
-        self.num_questions_var.trace('w', lambda *args: self.update_start_game_button())
+        self.num_questions_var.trace_add('write', lambda *args: self.update_start_game_button())
         num_questions_entry = ttk.Entry(game_frame, textvariable=self.num_questions_var, width=15)
         num_questions_entry.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
         
