@@ -52,7 +52,7 @@ class QuizClient:
         
         # Server IP
         ttk.Label(conn_frame, text="Server IP:").grid(row=0, column=0, sticky=tk.W, padx=5)
-        self.ip_var = tk.StringVar(value="127.0.0.1")
+        self.ip_var = tk.StringVar()
         ip_entry = ttk.Entry(conn_frame, textvariable=self.ip_var, width=20)
         ip_entry.grid(row=0, column=1, padx=5)
         
