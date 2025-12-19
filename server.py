@@ -453,6 +453,7 @@ class QuizServer:
         Handles a 'disconnect' event from the queue.
         Executed on the Main Thread.
         Removes the client from lists and notifies other players.
+        Note: Disconnected players' scores are kept in the scoreboard.
         """
         if client_socket in self.clients:
             client_name = self.clients[client_socket]['name']
@@ -462,10 +463,11 @@ class QuizServer:
             self.client_names.discard(client_name)
             del self.clients[client_socket]
             
-            if client_name in self.scores:
-                del self.scores[client_name]
+            # Disconnected players should remain on scoreboard
+            # if client_name in self.scores:
+            #     del self.scores[client_name]
                 
-            self.log(f"Client '{client_name}' disconnected")
+            self.log(f"Client '{client_name}' disconnected (score kept on scoreboard)")
             
             self.update_clients_list()
             self.update_start_game_button()
@@ -476,6 +478,10 @@ class QuizServer:
                 "player_name": client_name,
                 "message": f"{client_name} has disconnected"
             })
+            
+            # Update scoreboard so all players see the current state (including disconnected players)
+            if self.is_game_active:
+                self.send_scoreboard()
             
             try:
                 client_socket.close()
@@ -676,7 +682,16 @@ class QuizServer:
             self.is_game_active = True
             self.current_question_index = 0
             self.answers_received = {}
-            self.scores = {name: 0 for name in self.scores}
+            # Only reset scores for currently connected players
+            # Disconnected players' scores should remain on scoreboard
+            for client_socket, client_info in self.clients.items():
+                client_name = client_info['name']
+                self.scores[client_name] = 0
+            # Ensure all connected players have a score entry
+            for client_socket, client_info in self.clients.items():
+                client_name = client_info['name']
+                if client_name not in self.scores:
+                    self.scores[client_name] = 0
             
             self.log(f"Game started with {len(self.clients)} players. {self.num_questions} questions will be asked.")
             self.update_start_game_button()
