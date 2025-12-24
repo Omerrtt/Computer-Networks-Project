@@ -482,6 +482,24 @@ class QuizServer:
             # Update scoreboard so all players see the current state (including disconnected players)
             if self.is_game_active:
                 self.send_scoreboard()
+                
+                # Check if we're waiting for answers to current question
+                # If yes, check if all remaining players have answered
+                if self.is_waiting_for_answers():
+                    self.log(f"Waiting for answers to current question. Checking if all remaining players have answered...")
+                    # Check if all remaining connected players have answered
+                    if self.current_question_index in self.answers_received:
+                        connected_names = {info['name'] for info in self.clients.values()}
+                        answered_names = set(self.answers_received[self.current_question_index].keys())
+                        if connected_names.issubset(answered_names):
+                            self.log(f"All remaining players have answered. Processing answers...")
+                            self.process_question_answers()
+                        else:
+                            self.log(f"Still waiting for answers from: {connected_names - answered_names}")
+                # If not waiting for answers and less than 2 players, end game
+                elif len(self.clients) < 2:
+                    self.log("Less than 2 players remaining and no active question. Ending game...")
+                    self.end_game("Less than 2 players remaining")
             
             try:
                 client_socket.close()
@@ -591,8 +609,12 @@ class QuizServer:
                 }
                 self.log(f"Received answer '{answer}' from {client_name}")
                 
-                # Check if all players answered
-                if len(self.answers_received[self.current_question_index]) == len(self.clients):
+                # Check if all connected players answered
+                # Only process if all currently connected players have answered
+                connected_names = {info['name'] for info in self.clients.values()}
+                answered_names = set(self.answers_received[self.current_question_index].keys())
+                if connected_names.issubset(answered_names) and len(connected_names) > 0:
+                    self.log(f"All connected players have answered. Processing answers...")
                     self.process_question_answers()
 
     def update_clients_list(self):
@@ -848,6 +870,25 @@ class QuizServer:
             "scoreboard": scoreboard
         })
 
+    def is_waiting_for_answers(self):
+        """
+        Checks if we're currently waiting for answers to the current question.
+        Returns True if a question is active and not all connected players have answered.
+        """
+        if not self.is_game_active:
+            return False
+        
+        if self.current_question_index not in self.answers_received:
+            return False
+        
+        # Get connected player names
+        connected_names = {info['name'] for info in self.clients.values()}
+        # Get answered player names for current question
+        answered_names = set(self.answers_received[self.current_question_index].keys())
+        
+        # If there are connected players who haven't answered, we're still waiting
+        return not connected_names.issubset(answered_names)
+    
     def monitor_game_state(self):
         """
         Periodic task to check game health (e.g., minimum player count).
@@ -862,8 +903,10 @@ class QuizServer:
         # No lock needed - running on main thread via queue or root.after
         player_count = len(self.clients)
         
-        if player_count < 2:
-            self.log("Monitor detected fewer than 2 players. Ending game...")
+        # Only end game if we have less than 2 players AND we're not waiting for answers
+        # This allows remaining players to finish answering the current question
+        if player_count < 2 and not self.is_waiting_for_answers():
+            self.log("Monitor detected fewer than 2 players and no active question. Ending game...")
             # Use root.after to ensure end_game runs on main thread (though end_game itself is thread-safe now)
             # But technically monitor_game_state IS running on main thread via root.after below
             self.end_game("Less than 2 players remaining")
